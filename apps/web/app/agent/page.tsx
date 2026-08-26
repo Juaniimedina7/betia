@@ -163,7 +163,6 @@ export default function AgentPage() {
                             legs={combo.legs}
                             multiplier={combo.multiplier}
                             avgEdge={combo.avgEdge}
-                            animate
                             label="Combo del agente"
                           />
                         );
