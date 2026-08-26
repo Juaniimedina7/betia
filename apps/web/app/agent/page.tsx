@@ -1,72 +1,187 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
+import { ComboTicket, type TicketLeg } from "@/components/combo-ticket";
+
+const SUGGESTIONS = [
+  "Armame un combo de 50x con fútbol de hoy",
+  "Una combinada de 5 partidos, perfil conservador",
+  "Combo de 10x con tenis, máximo 3 patas",
+];
+
+/** Best-effort extraction of a build_combo result into ticket props. */
+function extractCombo(part: unknown): { legs: TicketLeg[]; multiplier: number; avgEdge?: number } | null {
+  try {
+    const p = part as { output?: unknown; result?: unknown };
+    let data: unknown = p.output ?? p.result;
+    if (data && typeof data === "object" && "content" in data) {
+      const content = (data as { content?: Array<{ text?: string }> }).content;
+      const text = content?.[0]?.text;
+      if (text) data = JSON.parse(text);
+    }
+    if (typeof data === "string") data = JSON.parse(data);
+    const d = data as {
+      legs?: Array<{ selectionLabel?: string; bookmaker?: string; priceDecimal?: number; edgePct?: number }>;
+      combinedOddsDecimal?: number;
+      averageEdgePct?: number;
+    };
+    if (!d?.legs || !Array.isArray(d.legs) || d.legs.length === 0) return null;
+    return {
+      legs: d.legs.map((l) => ({
+        selection: l.selectionLabel ?? "Selección",
+        detail: l.bookmaker,
+        price: Number(l.priceDecimal ?? 0),
+        edgePct: typeof l.edgePct === "number" ? l.edgePct : undefined,
+      })),
+      multiplier: Number(d.combinedOddsDecimal ?? 0),
+      avgEdge: typeof d.averageEdgePct === "number" ? d.averageEdgePct : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export default function AgentPage() {
   const [input, setInput] = useState("");
   const { messages, sendMessage, status } = useChat({
     transport: new DefaultChatTransport({ api: "/api/agent/chat" }),
   });
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const busy = status === "streaming" || status === "submitted";
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-    sendMessage({ text: input });
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, status]);
+
+  const send = (text: string) => {
+    if (!text.trim() || busy) return;
+    sendMessage({ text });
     setInput("");
   };
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-8">
-      <h1 className="text-2xl font-semibold">Agente de combos</h1>
-      <p className="text-sm text-gray-500">
-        Pedile un combo (ej. &quot;armame un combo de 50x con fútbol de hoy&quot;). Esto es solo una recomendación:
-        vos apostás manualmente donde quieras.
-      </p>
-
-      <div className="flex-1 space-y-4 overflow-y-auto rounded border border-black/10 p-4 dark:border-white/10">
-        {messages.map((message) => (
-          <div key={message.id}>
-            <p className="text-xs font-semibold uppercase text-gray-400">
-              {message.role === "user" ? "Vos" : "Agente"}
-            </p>
-            {message.parts.map((part, i) => {
-              if (part.type === "text") {
-                return (
-                  <p key={i} className="whitespace-pre-wrap text-sm">
-                    {part.text}
-                  </p>
-                );
-              }
-              if (part.type.startsWith("tool-")) {
-                return (
-                  <pre key={i} className="mt-1 overflow-x-auto rounded bg-black/5 p-2 text-xs dark:bg-white/5">
-                    {part.type} — {"state" in part ? part.state : ""}
-                  </pre>
-                );
-              }
-              return null;
-            })}
-          </div>
-        ))}
-        {status === "streaming" && <p className="text-xs text-gray-400">Pensando…</p>}
+    <div className="container-page flex min-h-[calc(100vh-4rem)] max-w-3xl flex-col py-10">
+      <div className="mb-6">
+        <span className="eyebrow inline-flex items-center gap-2">
+          <span className="live-dot" /> Agente de combinadas
+        </span>
+        <h1
+          className="mt-3 font-display font-extrabold leading-tight"
+          style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.6rem)", letterSpacing: "-0.03em" }}
+        >
+          Pedí tu combo
+        </h1>
       </div>
 
-      <form onSubmit={handleSubmit} className="flex gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Armame un combo de 50x con fútbol de hoy..."
-          className="flex-1 rounded border border-black/10 px-3 py-2 text-sm dark:border-white/10 dark:bg-transparent"
-        />
-        <button
-          type="submit"
-          disabled={status === "streaming"}
-          className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50 dark:bg-white dark:text-black"
-        >
-          Enviar
-        </button>
+      <div className="flex-1 space-y-5">
+        {messages.length === 0 && (
+          <div className="card p-6">
+            <p className="text-sm text-[var(--color-ink-muted)]">
+              Decile qué buscás y el agente arma la combinada calculando el valor por vos.
+              Probá con:
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => send(s)}
+                  className="chip transition-colors hover:border-[rgba(184,255,53,0.4)] hover:text-[var(--color-edge)]"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {messages.map((message) => {
+          const isUser = message.role === "user";
+          return (
+            <div key={message.id} className={isUser ? "flex justify-end" : ""}>
+              <div className={isUser ? "max-w-[85%]" : "w-full"}>
+                <p className="eyebrow mb-1.5">{isUser ? "Vos" : "BETIA"}</p>
+                <div
+                  className={
+                    isUser
+                      ? "rounded-2xl rounded-tr-sm bg-white/[0.06] px-4 py-3 text-sm"
+                      : "space-y-3"
+                  }
+                >
+                  {message.parts.map((part, i) => {
+                    if (part.type === "text") {
+                      return (
+                        <p key={i} className="whitespace-pre-wrap text-sm leading-relaxed">
+                          {part.text}
+                        </p>
+                      );
+                    }
+                    if (part.type.startsWith("tool-")) {
+                      const toolName = part.type.replace("tool-", "");
+                      const state = "state" in part ? (part.state as string) : "";
+                      const combo = extractCombo(part);
+                      if (combo && combo.multiplier > 0) {
+                        return (
+                          <ComboTicket
+                            key={i}
+                            legs={combo.legs}
+                            multiplier={combo.multiplier}
+                            avgEdge={combo.avgEdge}
+                            animate
+                            label="Combo del agente"
+                          />
+                        );
+                      }
+                      return (
+                        <div
+                          key={i}
+                          className="flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white/[0.02] px-3 py-2 text-xs text-[var(--color-ink-muted)]"
+                        >
+                          <span className="live-dot" style={{ background: "var(--color-gold)" }} />
+                          <span className="tnum">{toolName}</span>
+                          {state && <span className="text-[var(--color-ink-faint)]">· {state}</span>}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {busy && (
+          <div className="flex items-center gap-2 text-sm text-[var(--color-ink-muted)]">
+            <span className="live-dot" style={{ background: "var(--color-edge)" }} />
+            Pensando…
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          send(input);
+        }}
+        className="sticky bottom-4 mt-6"
+      >
+        <div className="card flex items-center gap-2 p-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Armame un combo de 50x con fútbol de hoy…"
+            className="flex-1 bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-[var(--color-ink-faint)]"
+          />
+          <button type="submit" disabled={busy || !input.trim()} className="btn btn-primary disabled:opacity-40">
+            Enviar
+          </button>
+        </div>
+        <p className="mt-2 px-1 text-center text-xs text-[var(--color-ink-faint)]">
+          Recomendación informativa. BETIA no coloca apuestas — vos apostás donde quieras.
+        </p>
       </form>
     </div>
   );

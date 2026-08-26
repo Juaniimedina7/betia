@@ -46,34 +46,44 @@ export default async function TokensPage() {
     .orderBy(desc(apiTokens.createdAt));
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8">
-      <h1 className="mb-2 text-2xl font-semibold">Tokens MCP</h1>
-      <p className="mb-6 text-sm text-gray-500">
-        Usá un token acá para conectar Claude Desktop u otro cliente MCP a{" "}
-        <code>/api/mcp</code> con tu propia sesión (podrá ver y guardar tus apuestas).
+    <div className="container-page max-w-2xl py-14">
+      <span className="eyebrow">Conexión MCP</span>
+      <h1
+        className="mt-3 font-display font-extrabold leading-tight"
+        style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)", letterSpacing: "-0.03em" }}
+      >
+        Tokens MCP
+      </h1>
+      <p className="mb-8 mt-3 text-sm text-[var(--color-ink-muted)]">
+        Conectá Claude Desktop u otro cliente MCP a <code className="tnum">/api/mcp</code> con tu
+        propia sesión — podrá ver y guardar tus apuestas.
       </p>
 
       <TokenForm createToken={createToken} />
 
-      <ul className="divide-y divide-black/10 dark:divide-white/10">
-        {tokens.map((token) => (
-          <li key={token.id} className="flex items-center justify-between py-3 text-sm">
-            <div>
-              <p className="font-medium">{token.label ?? "Sin etiqueta"}</p>
-              <p className="text-gray-500">
-                Creado {token.createdAt.toLocaleDateString()}
-                {token.lastUsedAt ? ` · último uso ${token.lastUsedAt.toLocaleDateString()}` : ""}
-              </p>
+      {tokens.length === 0 ? (
+        <p className="text-sm text-[var(--color-ink-muted)]">Todavía no creaste ningún token.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {tokens.map((token) => (
+            <div key={token.id} className="card flex items-center justify-between px-5 py-3.5 text-sm">
+              <div>
+                <p className="font-medium">{token.label ?? "Sin etiqueta"}</p>
+                <p className="text-xs text-[var(--color-ink-muted)] tnum">
+                  Creado {token.createdAt.toLocaleDateString("es-AR")}
+                  {token.lastUsedAt ? ` · último uso ${token.lastUsedAt.toLocaleDateString("es-AR")}` : ""}
+                </p>
+              </div>
+              <form action={revokeToken}>
+                <input type="hidden" name="tokenId" value={token.id} />
+                <button type="submit" className="text-sm text-[var(--color-danger)] hover:underline">
+                  Revocar
+                </button>
+              </form>
             </div>
-            <form action={revokeToken}>
-              <input type="hidden" name="tokenId" value={token.id} />
-              <button type="submit" className="text-red-600 hover:underline">
-                Revocar
-              </button>
-            </form>
-          </li>
-        ))}
-      </ul>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

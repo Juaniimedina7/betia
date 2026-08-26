@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listFixtures } from "@bet/mcp-tools";
+import { Reveal } from "@/components/reveal";
 
 export const dynamic = "force-dynamic";
 
@@ -15,28 +16,65 @@ export default async function SportOddsPage({ params }: PageProps<"/odds/[sportI
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8">
-      <Link href="/odds" className="text-sm text-gray-500 hover:underline">
-        &larr; Deportes
+    <div className="container-page py-14">
+      <Link
+        href="/odds"
+        className="text-sm text-[var(--color-ink-muted)] transition-colors hover:text-[var(--color-ink)]"
+      >
+        ← Deportes
       </Link>
-      <h1 className="mb-6 mt-2 text-2xl font-semibold">Partidos — {sportId}</h1>
 
-      {error && <p className="text-red-600">{error}</p>}
-      {!error && fixtures.length === 0 && <p className="text-gray-500">No hay partidos próximos.</p>}
+      <Reveal>
+        <h1
+          className="mt-3 font-display font-extrabold leading-tight"
+          style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.6rem)", letterSpacing: "-0.03em" }}
+        >
+          Próximos partidos
+        </h1>
+      </Reveal>
 
-      <ul className="divide-y divide-black/10 dark:divide-white/10">
-        {fixtures.map((fixture) => (
-          <li key={fixture.fixtureId} className="py-3">
-            <Link href={`/fixtures/${fixture.fixtureId}`} className="flex items-center justify-between hover:underline">
-              <span>
-                {fixture.participant1Name ?? fixture.participant1Id} vs{" "}
-                {fixture.participant2Name ?? fixture.participant2Id}
+      {error && <p className="mt-6 text-[var(--color-danger)]">{error}</p>}
+      {!error && fixtures.length === 0 && (
+        <p className="mt-6 text-[var(--color-ink-muted)]">No hay partidos próximos para este deporte.</p>
+      )}
+
+      <div className="mt-8 flex flex-col gap-3">
+        {fixtures.map((fixture, i) => (
+          <Reveal key={fixture.fixtureId} delay={Math.min(i * 35, 350)}>
+            <Link
+              href={`/fixtures/${fixture.fixtureId}`}
+              className="card card-hover group flex items-center justify-between gap-4 px-5 py-4"
+            >
+              <div className="flex items-center gap-4">
+                <span className="hidden h-9 w-9 items-center justify-center rounded-lg border border-[var(--line-strong)] text-xs text-[var(--color-ink-muted)] sm:flex tnum">
+                  VS
+                </span>
+                <div>
+                  <p className="font-medium leading-tight">
+                    {fixture.participant1Name ?? fixture.participant1Id}
+                    <span className="mx-2 text-[var(--color-ink-faint)]">vs</span>
+                    {fixture.participant2Name ?? fixture.participant2Id}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[var(--color-ink-muted)] tnum">
+                    {new Date(fixture.startTime).toLocaleString("es-AR", {
+                      day: "2-digit",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                </div>
+              </div>
+              <span
+                aria-hidden
+                className="text-[var(--color-ink-faint)] transition-all group-hover:translate-x-1 group-hover:text-[var(--color-edge)]"
+              >
+                Ver cuotas →
               </span>
-              <span className="text-sm text-gray-500">{new Date(fixture.startTime).toLocaleString()}</span>
             </Link>
-          </li>
+          </Reveal>
         ))}
-      </ul>
+      </div>
     </div>
   );
 }
