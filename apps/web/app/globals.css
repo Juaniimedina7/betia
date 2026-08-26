@@ -236,11 +236,6 @@
   100% { background-position: 180% 0; }
 }
 
-@keyframes float-slow {
-  0%, 100% { transform: translateY(0) rotate(-0.6deg); }
-  50% { transform: translateY(-10px) rotate(0.4deg); }
-}
-
 @keyframes grid-drift {
   from { background-position: 0 0; }
   to { background-position: 64px 64px; }
@@ -265,10 +260,6 @@
   );
   background-size: 200% 100%;
   animation: shimmer 2.6s linear infinite;
-}
-
-.float-slow {
-  animation: float-slow 7s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

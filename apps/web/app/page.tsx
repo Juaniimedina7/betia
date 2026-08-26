@@ -81,12 +81,11 @@ export default function HomePage() {
 
         {/* Signature ticket */}
         <Reveal delay={220} className="lg:justify-self-end">
-          <div className="float-slow mx-auto w-full max-w-sm">
+          <div className="mx-auto w-full max-w-sm">
             <ComboTicket
               legs={HERO_LEGS}
               multiplier={5.65}
               avgEdge={3.3}
-              animate
               label="Ticket de ejemplo"
               note="Ejemplo ilustrativo. Las cuotas reales se actualizan en vivo y el agente arma el ticket por vos."
             />
