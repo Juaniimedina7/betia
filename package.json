@@ -1,0 +1,12 @@
+{
+  "name": "bet-project",
+  "private": true,
+  "packageManager": "pnpm@11.24.0",
+  "scripts": {
+    "dev": "pnpm --filter @bet/web dev",
+    "build": "pnpm --filter @bet/web build",
+    "lint": "pnpm -r lint",
+    "db:push": "pnpm --filter @bet/db db:push",
+    "db:studio": "pnpm --filter @bet/db db:studio"
+  }
+}

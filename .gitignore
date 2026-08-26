@@ -1,0 +1,11 @@
+node_modules
+.pnpm-store
+.next
+.turbo
+.vercel
+.env
+.env.local
+.env*.local
+*.tsbuildinfo
+.DS_Store
+packages/db/drizzle
