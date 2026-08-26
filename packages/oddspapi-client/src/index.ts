@@ -26,16 +26,21 @@ export class OddsPapiError extends Error {
   }
 }
 
+const DEFAULT_TIMEOUT_MS = 10_000;
+
 export interface OddsPapiClientOptions {
   apiKey: string;
   host?: string;
   fetchImpl?: typeof fetch;
+  /** Aborts a request that takes longer than this. Defaults to 10s. */
+  timeoutMs?: number;
 }
 
 export class OddsPapiClient {
   private readonly apiKey: string;
   private readonly host: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly timeoutMs: number;
 
   constructor(options: OddsPapiClientOptions) {
     if (!options.apiKey) {
@@ -44,6 +49,7 @@ export class OddsPapiClient {
     this.apiKey = options.apiKey;
     this.host = options.host ?? DEFAULT_HOST;
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
   private async request<T>(
@@ -57,9 +63,23 @@ export class OddsPapiClient {
       url.searchParams.set(key, Array.isArray(value) ? value.join(",") : String(value));
     }
 
-    const res = await this.fetchImpl(url.toString(), {
-      headers: { accept: "application/json" },
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    let res: Response;
+    try {
+      res = await this.fetchImpl(url.toString(), {
+        headers: { accept: "application/json" },
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new OddsPapiError(`OddsPapi request timed out after ${this.timeoutMs}ms: ${path}`, 0, "");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -113,9 +133,15 @@ export function getOddsPapiClient(): OddsPapiClient {
   if (!cachedClient) {
     const apiKey = process.env.ODDSPAPI_API_KEY;
     if (!apiKey) {
-      throw new Error("ODDSPAPI_API_KEY is not set");
+      throw new Error(
+        "ODDSPAPI_API_KEY is not set. Get a key from https://oddspapi.io and run `vercel env add ODDSPAPI_API_KEY`.",
+      );
     }
-    cachedClient = new OddsPapiClient({ apiKey });
+    const host = process.env.ODDSPAPI_HOST || undefined;
+    const timeoutMs = process.env.ODDSPAPI_TIMEOUT_MS
+      ? Number(process.env.ODDSPAPI_TIMEOUT_MS)
+      : undefined;
+    cachedClient = new OddsPapiClient({ apiKey, host, timeoutMs });
   }
   return cachedClient;
 }

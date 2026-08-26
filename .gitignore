@@ -9,3 +9,5 @@ node_modules
 *.tsbuildinfo
 .DS_Store
 packages/db/drizzle
+.env*
+!.env.example

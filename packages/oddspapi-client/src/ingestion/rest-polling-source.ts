@@ -5,6 +5,12 @@ export interface RestPollingSourceOptions {
   client: OddsPapiClient;
   /** Tournament ids to poll — keep this bounded to stay within free-tier request quotas. */
   watchedTournamentIds: () => Promise<string[]> | string[];
+  /**
+   * `/v4/odds-by-tournaments` requires exactly one bookmaker per call — the API
+   * rejects requests with none or more than one. Pick a book with broad market
+   * coverage (e.g. "pinnacle") as the reference price.
+   */
+  bookmaker: string;
 }
 
 /**
@@ -37,7 +43,10 @@ export class RestPollingSource implements OddsIngestionSource {
       return { fixturesPolled: 0 };
     }
 
-    const fixtures = await this.options.client.getOddsByTournaments({ tournamentIds });
+    const fixtures = await this.options.client.getOddsByTournaments({
+      tournamentIds,
+      bookmaker: this.options.bookmaker,
+    });
 
     for (const fixture of fixtures) {
       if (!fixture.bookmakerOdds) continue;

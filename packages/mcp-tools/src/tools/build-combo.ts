@@ -50,7 +50,9 @@ export async function buildComboTool(input: BuildComboInput) {
     };
   }
 
-  const fixtures = await getOddsPapiClient().getOddsByTournaments({ tournamentIds });
+  // OddsPapi requires exactly one bookmaker per call; pinnacle is used as the reference
+  // price for combo math (see get-odds-by-tournament.ts for the same default).
+  const fixtures = await getOddsPapiClient().getOddsByTournaments({ tournamentIds, bookmaker: "pinnacle" });
   const candidates = extractCandidateLegs(fixtures);
 
   return runComboSearch(candidates, {

@@ -1,6 +1,7 @@
-import { getOddsPapiClient, RedisOddsCache, RestPollingSource } from "@bet/oddspapi-client";
+import { getOddsPapiClient, OddsPapiError, RedisOddsCache, RestPollingSource } from "@bet/oddspapi-client";
 
 const ODDS_CACHE_TTL_SECONDS = 120;
+const DEFAULT_BOOKMAKER = "pinnacle";
 
 function watchedTournamentIds(): string[] {
   return (process.env.WATCHED_TOURNAMENT_IDS ?? "")
@@ -20,12 +21,23 @@ export async function GET(req: Request) {
   const source = new RestPollingSource({
     client: getOddsPapiClient(),
     watchedTournamentIds,
+    bookmaker: process.env.ODDSPAPI_BOOKMAKER || DEFAULT_BOOKMAKER,
   });
 
   source.onUpdate(async (event) => {
     await cache.setFixtureOdds(event.fixtureId, event.bookmakerOdds, ODDS_CACHE_TTL_SECONDS);
   });
 
-  const result = await source.poll();
-  return Response.json(result);
+  try {
+    const result = await source.poll();
+    return Response.json(result);
+  } catch (err) {
+    if (err instanceof OddsPapiError) {
+      return Response.json(
+        { error: err.message, status: err.status },
+        { status: err.status === 0 ? 504 : 502 },
+      );
+    }
+    throw err;
+  }
 }

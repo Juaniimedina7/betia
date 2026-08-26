@@ -10,6 +10,9 @@ export const getOddsByTournamentInput = z.object({
 export type GetOddsByTournamentInput = z.infer<typeof getOddsByTournamentInput>;
 
 export async function getOddsByTournament(input: GetOddsByTournamentInput) {
-  const fixtures = await getOddsPapiClient().getOddsByTournaments(input);
+  // OddsPapi requires exactly one bookmaker; default to a broad-coverage reference book
+  // so this tool doesn't 400 when the caller omits it.
+  const bookmaker = input.bookmaker ?? "pinnacle";
+  const fixtures = await getOddsPapiClient().getOddsByTournaments({ ...input, bookmaker });
   return { fixtures };
 }

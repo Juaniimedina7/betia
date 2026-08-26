@@ -14,6 +14,10 @@ combos, servidor MCP, schema de base de datos) y está desplegado en Vercel como
 - [x] `MCP_INTERNAL_JWT_SECRET` y `CRON_SECRET` generados y guardados en Vercel (dev/preview/prod)
 - [x] `next build` compila y tipa sin errores (falta config real de Clerk para que el
       prerender de `/_not-found` no falle — ver abajo)
+- [x] `ODDSPAPI_API_KEY` cargado en Vercel (dev/preview/prod) y en `apps/web/.env.local`
+- [x] `WATCHED_TOURNAMENT_IDS` seteado con un default razonable (Champions/Europa League,
+      las 5 grandes ligas europeas, Copa Libertadores y Liga Profesional Argentina —
+      ver `apps/web/.env.example` para la lista completa de ids y cómo ajustarla)
 
 ## Falta (bloqueado en términos de marketplace / claves manuales)
 
@@ -37,25 +41,17 @@ combos, servidor MCP, schema de base de datos) y está desplegado en Vercel como
      vercel env add CLERK_WEBHOOK_SIGNING_SECRET production --scope agustinvenutolo-3540s-projects
      ```
 
-3. **API key de OddsPapi** (https://oddspapi.io — crear cuenta, tomar el key del tier
-   gratuito):
-   ```bash
-   vercel env add ODDSPAPI_API_KEY development --scope agustinvenutolo-3540s-projects
-   vercel env add ODDSPAPI_API_KEY preview --scope agustinvenutolo-3540s-projects
-   vercel env add ODDSPAPI_API_KEY production --scope agustinvenutolo-3540s-projects
-   ```
+3. **Plan de Vercel (Hobby vs Pro)**: la cuenta está en el plan Hobby, que solo permite
+   crons con frecuencia diaria. `vercel.json` quedó con `0 0 * * *` (una vez por día)
+   para poder deployar; el diseño original pensaba en pollear cada 1-2 minutos. Para
+   eso hace falta pasar el proyecto a Pro y volver a poner algo como `*/2 * * * *`.
 
-4. **`WATCHED_TOURNAMENT_IDS`** — una vez que tengan el API key, listar sports/tournaments
-   reales (`GET /v4/sports`, `GET /v4/tournaments`) y elegir qué torneos pollear cada
-   2 minutos (`vercel.json` ya tiene el cron configurado contra `/api/ingest/poll`).
-   Sin esto seteado, el poller no hace nada (no rompe, solo no trae datos).
-
-5. **AI Gateway**: no necesita configuración manual en Vercel (usa OIDC vía
+4. **AI Gateway**: no necesita configuración manual en Vercel (usa OIDC vía
    `vercel env pull`). Si van a correr el chat del agente fuera de Vercel (CI, local sin
    `vercel dev`), necesitan `AI_GATEWAY_API_KEY` de
    https://vercel.com/d?to=%2F%5Bteam%5D%2F~%2Fai-gateway%2Fapi-keys.
 
-6. Después de todo lo anterior: `vercel env pull apps/web/.env.local --yes` una vez más
+5. Después de todo lo anterior: `vercel env pull apps/web/.env.local --yes` una vez más
    y correr `pnpm dev` desde la raíz para levantar todo local.
 
 ## Notas de diseño a tener presentes
@@ -68,3 +64,7 @@ combos, servidor MCP, schema de base de datos) y está desplegado en Vercel como
 - El servidor MCP (`apps/web/app/api/mcp/route.ts`) es la única implementación de las
   tools; lo usan tanto clientes MCP externos (Claude Desktop, vía token personal desde
   `/settings/tokens`) como el agente interno (JWT de corta vida).
+- `GET /v4/odds-by-tournaments` de OddsPapi exige exactamente un `bookmaker` por request
+  (rechaza con 400 si falta). El cron de ingesta, `build_combo` y la tool MCP
+  `get_odds_by_tournament` usan `pinnacle` como default (configurable vía
+  `ODDSPAPI_BOOKMAKER` para el cron); ver `GET /v4/bookmakers` para otros slugs.
