@@ -1,5 +1,3 @@
-import { CountUp } from "./count-up";
-
 export interface TicketLeg {
   selection: string;
   detail?: string;
@@ -97,7 +95,7 @@ export function ComboTicket({
             className="font-display font-black tnum"
             style={{ fontSize: "2.6rem", color: "var(--color-gold)", letterSpacing: "-0.03em" }}
           >
-            
+            {multiplier.toFixed(2)}x
           </span>
         </div>
       </div>
