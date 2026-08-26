@@ -18,7 +18,6 @@ export function ComboTicket({
   avgEdge,
   label = "Ticket BETIA",
   note,
-  animate = false,
   className = "",
 }: {
   legs: TicketLeg[];
@@ -26,7 +25,6 @@ export function ComboTicket({
   avgEdge?: number;
   label?: string;
   note?: string;
-  animate?: boolean;
   className?: string;
 }) {
   return (
@@ -99,11 +97,7 @@ export function ComboTicket({
             className="font-display font-black tnum"
             style={{ fontSize: "2.6rem", color: "var(--color-gold)", letterSpacing: "-0.03em" }}
           >
-            {animate ? (
-              <CountUp value={multiplier} suffix="x" />
-            ) : (
-              `${multiplier.toFixed(2)}x`
-            )}
+            
           </span>
         </div>
       </div>
