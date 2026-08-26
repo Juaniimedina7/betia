@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { Reveal } from "@/components/reveal";
+import { PlanCta } from "@/components/plan-cta";
 import { PLANS, formatArs, pricePerRun } from "@/lib/plans";
 
 export const metadata = {
@@ -135,12 +135,7 @@ export default function PricingPage() {
                   </p>
                 )}
 
-                <Link
-                  href={`/sign-up?plan=${plan.id}`}
-                  className={`btn mt-6 w-full ${highlight ? "btn-primary" : "btn-ghost"}`}
-                >
-                  {plan.cta}
-                </Link>
+                <PlanCta planId={plan.id} label={plan.cta} primary={Boolean(highlight)} />
               </div>
             </Reveal>
           );

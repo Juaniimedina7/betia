@@ -1,6 +1,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
   index,
+  integer,
   jsonb,
   numeric,
   pgTable,
@@ -11,13 +12,40 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+export const planIds = ["free", "starter", "pro"] as const;
+
 export const users = pgTable("users", {
   id: text("id").primaryKey(), // Clerk user id
   email: text("email").notNull(),
   displayName: text("display_name"),
+  plan: text("plan", { enum: planIds }).notNull().default("free"),
+  planStatus: text("plan_status", { enum: ["active", "paused", "cancelled"] })
+    .notNull()
+    .default("active"),
+  mpPreapprovalId: text("mp_preapproval_id"),
+  planUpdatedAt: timestamp("plan_updated_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** One row per user per calendar month (YYYY-MM); counts consumed agent runs. */
+export const monthlyUsage = pgTable(
+  "monthly_usage",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    period: text("period").notNull(), // e.g. "2026-08"
+    runCount: integer("run_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique().on(table.userId, table.period),
+    index("monthly_usage_user_id_idx").on(table.userId),
+  ],
+);
 
 export const apiTokens = pgTable("api_tokens", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),

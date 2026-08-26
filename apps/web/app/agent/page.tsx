@@ -1,9 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { ComboTicket, type TicketLeg } from "@/components/combo-ticket";
+
+interface Usage {
+  planId: string;
+  used: number;
+  limit: number;
+  remaining: number;
+}
 
 const SUGGESTIONS = [
   "Armame un combo de 50x con fútbol de hoy",
@@ -50,13 +58,33 @@ export default function AgentPage() {
   });
   const bottomRef = useRef<HTMLDivElement>(null);
   const busy = status === "streaming" || status === "submitted";
+  const [usage, setUsage] = useState<Usage | null>(null);
+
+  const refreshUsage = useCallback(async () => {
+    try {
+      const res = await fetch("/api/usage");
+      if (res.ok) setUsage((await res.json()) as Usage);
+    } catch {
+      // ignore — usage is a nicety, enforcement also happens server-side
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshUsage();
+  }, [refreshUsage]);
+
+  useEffect(() => {
+    if (status === "ready") refreshUsage();
+  }, [status, refreshUsage]);
+
+  const outOfRuns = usage ? usage.remaining <= 0 : false;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, status]);
 
   const send = (text: string) => {
-    if (!text.trim() || busy) return;
+    if (!text.trim() || busy || outOfRuns) return;
     sendMessage({ text });
     setInput("");
   };
@@ -67,12 +95,19 @@ export default function AgentPage() {
         <span className="eyebrow inline-flex items-center gap-2">
           <span className="live-dot" /> Agente de combinadas
         </span>
-        <h1
-          className="mt-3 font-display font-extrabold leading-tight"
-          style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.6rem)", letterSpacing: "-0.03em" }}
-        >
-          Pedí tu combo
-        </h1>
+        <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
+          <h1
+            className="font-display font-extrabold leading-tight"
+            style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.6rem)", letterSpacing: "-0.03em" }}
+          >
+            Pedí tu combo
+          </h1>
+          {usage && (
+            <span className="chip tnum" title={`Plan ${usage.planId}`}>
+              {usage.remaining} de {usage.limit} combos este mes
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 space-y-5">
@@ -161,28 +196,46 @@ export default function AgentPage() {
         <div ref={bottomRef} />
       </div>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          send(input);
-        }}
-        className="sticky bottom-4 mt-6"
-      >
-        <div className="card flex items-center gap-2 p-2">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Armame un combo de 50x con fútbol de hoy…"
-            className="flex-1 bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-[var(--color-ink-faint)]"
-          />
-          <button type="submit" disabled={busy || !input.trim()} className="btn btn-primary disabled:opacity-40">
-            Enviar
-          </button>
+      {outOfRuns ? (
+        <div className="sticky bottom-4 mt-6">
+          <div
+            className="card p-5 text-center"
+            style={{ borderColor: "rgba(184,255,53,0.4)", background: "linear-gradient(180deg, rgba(184,255,53,0.06), transparent)" }}
+          >
+            <p className="font-display text-lg font-extrabold">Te quedaste sin combos este mes</p>
+            <p className="mx-auto mt-1.5 max-w-md text-sm text-[var(--color-ink-muted)]">
+              Pasate a un plan superior y seguí armando combinadas al instante. Pro te da
+              600 combos por mes.
+            </p>
+            <Link href="/pricing" className="btn btn-primary mt-4">
+              Ver planes →
+            </Link>
+          </div>
         </div>
-        <p className="mt-2 px-1 text-center text-xs text-[var(--color-ink-faint)]">
-          Recomendación informativa. BETIA no coloca apuestas — vos apostás donde quieras.
-        </p>
-      </form>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            send(input);
+          }}
+          className="sticky bottom-4 mt-6"
+        >
+          <div className="card flex items-center gap-2 p-2">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Armame un combo de 50x con fútbol de hoy…"
+              className="flex-1 bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-[var(--color-ink-faint)]"
+            />
+            <button type="submit" disabled={busy || !input.trim()} className="btn btn-primary disabled:opacity-40">
+              Enviar
+            </button>
+          </div>
+          <p className="mt-2 px-1 text-center text-xs text-[var(--color-ink-faint)]">
+            Recomendación informativa. BETIA no coloca apuestas — vos apostás donde quieras.
+          </p>
+        </form>
+      )}
     </div>
   );
 }
