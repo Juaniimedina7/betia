@@ -17,6 +17,7 @@ export function SiteFooter() {
           <div className="flex flex-col gap-2">
             <Link href="/odds" className="hover:text-[var(--color-ink)]">Cuotas</Link>
             <Link href="/agent" className="hover:text-[var(--color-ink)]">Agente</Link>
+            <Link href="/pricing" className="hover:text-[var(--color-ink)]">Precios</Link>
           </div>
           <div className="flex flex-col gap-2">
             <Link href="/bets" className="hover:text-[var(--color-ink)]">Mis apuestas</Link>

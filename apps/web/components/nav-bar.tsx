@@ -4,6 +4,7 @@ import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 const LINKS = [
   { href: "/odds", label: "Cuotas" },
   { href: "/agent", label: "Agente" },
+  { href: "/pricing", label: "Precios" },
   { href: "/bets", label: "Mis apuestas" },
 ];
 
