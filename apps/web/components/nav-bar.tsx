@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs";
+import { Show, SignInButton, UserButton } from "@clerk/nextjs";
 
 export function NavBar() {
   return (
@@ -20,12 +20,12 @@ export function NavBar() {
           </Link>
         </div>
         <div className="flex items-center gap-4">
-          <SignedOut>
+          <Show when="signed-out">
             <SignInButton mode="modal" />
-          </SignedOut>
-          <SignedIn>
+          </Show>
+          <Show when="signed-in">
             <UserButton />
-          </SignedIn>
+          </Show>
         </div>
       </nav>
     </header>
