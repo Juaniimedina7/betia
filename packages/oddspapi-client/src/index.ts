@@ -45,6 +45,7 @@ interface RawFixture {
   seasonId?: number | string;
   statusId?: number | string;
   startTime: string;
+  hasOdds?: boolean;
   bookmakerOdds?: BookmakerOdds;
 }
 
@@ -73,6 +74,7 @@ function normalizeFixture(raw: RawFixture): Fixture {
     participant2Name: raw.participant2Name,
     startTime: raw.startTime,
     statusId: raw.statusId !== undefined ? String(raw.statusId) : undefined,
+    hasOdds: raw.hasOdds,
     bookmakerOdds: raw.bookmakerOdds,
   };
 }
@@ -197,7 +199,9 @@ export class OddsPapiClient {
       ? { ...params, from: isoNow(), to: isoDaysFromNow(3) }
       : params;
     const raw = await this.request<RawFixture[]>("/v4/fixtures", { ...resolvedParams });
-    const fixtures = raw.map(normalizeFixture);
+    // Browsing UIs only want fixtures a user could actually get odds for — a fixture
+    // with hasOdds: false is just a dead end (empty odds board) if clicked into.
+    const fixtures = raw.filter((f) => f.hasOdds !== false).map(normalizeFixture);
     fixtures.sort((a, b) => a.startTime.localeCompare(b.startTime));
     // A whole-sport query (e.g. worldwide soccer) can return thousands of fixtures
     // across every minor league — far more than any browsing UI should render or

@@ -1,6 +1,6 @@
 import { getDb, oddsCache } from "@bet/db";
 import { getOddsPapiClient, type Fixture } from "@bet/oddspapi-client";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 export const listFixturesInput = z.object({
@@ -75,9 +75,12 @@ async function readCachedFixtures(
 ): Promise<{ fixtures: Fixture[]; cachedAt: string | undefined }> {
   try {
     const db = getDb();
+    // Same principle as the live path: a fixture with no cached odds is a dead end
+    // (empty odds board) if the user clicks into it, so don't offer it as a fallback.
+    const hasOdds = isNotNull(oddsCache.bookmakerOdds);
     const rows = sportId
-      ? await db.select().from(oddsCache).where(eq(oddsCache.sportId, sportId))
-      : await db.select().from(oddsCache);
+      ? await db.select().from(oddsCache).where(and(eq(oddsCache.sportId, sportId), hasOdds))
+      : await db.select().from(oddsCache).where(hasOdds);
     const cachedAt = rows.reduce<Date | undefined>(
       (latest, r) => (!latest || r.updatedAt > latest ? r.updatedAt : latest),
       undefined,

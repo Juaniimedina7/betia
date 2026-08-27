@@ -38,6 +38,8 @@ export interface Fixture {
   participant2Name?: string;
   startTime: string;
   statusId?: string;
+  /** Whether OddsPapi currently has any bookmaker odds posted for this fixture. */
+  hasOdds?: boolean;
   bookmakerOdds?: BookmakerOdds;
 }
 
