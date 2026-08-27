@@ -9,10 +9,12 @@ export default async function FixturePage({ params }: PageProps<"/fixtures/[fixt
   const { fixtureId } = await params;
 
   let bookmakerOdds: Awaited<ReturnType<typeof getOdds>>["bookmakerOdds"] = {};
+  let source: Awaited<ReturnType<typeof getOdds>>["source"] | null = null;
+  let cachedAt: string | undefined;
   let error: string | null = null;
 
   try {
-    ({ bookmakerOdds } = await getOdds({ fixtureId }));
+    ({ bookmakerOdds, source, cachedAt } = await getOdds({ fixtureId }));
   } catch (e) {
     error = e instanceof Error ? e.message : "No se pudieron cargar las cuotas";
   }
@@ -38,6 +40,13 @@ export default async function FixturePage({ params }: PageProps<"/fixtures/[fixt
         </div>
         <p className="mt-2 text-sm text-[var(--color-ink-muted)] tnum">Partido {fixtureId}</p>
       </Reveal>
+
+      {!error && source === "db-cache" && (
+        <p className="mt-4 rounded-2xl border border-[var(--line-strong)] bg-[rgba(255,255,255,0.03)] p-4 text-sm text-[var(--color-ink-muted)]">
+          Mostrando las últimas cuotas guardadas{cachedAt ? ` (${new Date(cachedAt).toLocaleString("es-AR")})` : ""}{" "}
+          — no pudimos conectar con OddsPapi ahora mismo.
+        </p>
+      )}
 
       <div className="mt-8">
         {error ? (

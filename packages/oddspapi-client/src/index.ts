@@ -1,4 +1,5 @@
 import type {
+  BookmakerOdds,
   Fixture,
   GetHistoricalOddsParams,
   GetOddsByTournamentParams,
@@ -15,6 +16,70 @@ export { RedisOddsCache } from "./ingestion/redis-cache";
 
 const DEFAULT_HOST = "https://api.oddspapi.io";
 
+// The live API's field names/types differ from our internal Sport/Tournament/Fixture
+// shapes (e.g. numeric ids, `sportName` instead of `name`). These Raw* types and
+// normalize* functions are the single place that maps API reality onto our contract
+// so the rest of the app never has to know about the raw shape.
+interface RawSport {
+  sportId: number;
+  slug: string;
+  sportName: string;
+}
+
+interface RawTournament {
+  tournamentId: number;
+  tournamentSlug: string;
+  tournamentName: string;
+  categorySlug?: string;
+  categoryName?: string;
+}
+
+interface RawFixture {
+  fixtureId: string;
+  participant1Id: number | string;
+  participant2Id: number | string;
+  participant1Name?: string;
+  participant2Name?: string;
+  sportId: number | string;
+  tournamentId: number | string;
+  seasonId?: number | string;
+  statusId?: number | string;
+  startTime: string;
+  bookmakerOdds?: BookmakerOdds;
+}
+
+function normalizeSport(raw: RawSport): Sport {
+  return { sportId: String(raw.sportId), name: raw.sportName };
+}
+
+function normalizeTournament(raw: RawTournament, sportId: string): Tournament {
+  return {
+    tournamentId: String(raw.tournamentId),
+    sportId,
+    name: raw.tournamentName,
+    countryCode: raw.categorySlug,
+  };
+}
+
+function normalizeFixture(raw: RawFixture): Fixture {
+  return {
+    fixtureId: raw.fixtureId,
+    sportId: String(raw.sportId),
+    tournamentId: String(raw.tournamentId),
+    seasonId: raw.seasonId !== undefined ? String(raw.seasonId) : undefined,
+    participant1Id: String(raw.participant1Id),
+    participant2Id: String(raw.participant2Id),
+    participant1Name: raw.participant1Name,
+    participant2Name: raw.participant2Name,
+    startTime: raw.startTime,
+    statusId: raw.statusId !== undefined ? String(raw.statusId) : undefined,
+    bookmakerOdds: raw.bookmakerOdds,
+  };
+}
+
+const isoNow = () => new Date().toISOString();
+const isoDaysFromNow = (days: number) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+
 export class OddsPapiError extends Error {
   constructor(
     message: string,
@@ -27,6 +92,7 @@ export class OddsPapiError extends Error {
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const MAX_FIXTURES_PER_LIST = 200;
 
 export interface OddsPapiClientOptions {
   apiKey: string;
@@ -89,28 +155,44 @@ export class OddsPapiClient {
     return (await res.json()) as T;
   }
 
-  listSports(): Promise<Sport[]> {
-    return this.request<Sport[]>("/v4/sports");
+  async listSports(): Promise<Sport[]> {
+    const raw = await this.request<RawSport[]>("/v4/sports");
+    return raw.map(normalizeSport);
   }
 
-  listTournaments(sportId: string): Promise<Tournament[]> {
-    return this.request<Tournament[]>("/v4/tournaments", { sportId });
+  async listTournaments(sportId: string): Promise<Tournament[]> {
+    const raw = await this.request<RawTournament[]>("/v4/tournaments", { sportId });
+    return raw.map((t) => normalizeTournament(t, sportId));
   }
 
-  listFixtures(params: ListFixturesParams = {}): Promise<Fixture[]> {
-    return this.request<Fixture[]>("/v4/fixtures", { ...params });
+  async listFixtures(params: ListFixturesParams = {}): Promise<Fixture[]> {
+    // The API requires `from`/`to` (max 10 days apart) whenever fixtures are
+    // requested for a whole sport rather than a specific tournament/season.
+    const needsDateWindow = !params.tournamentId && !params.from && !params.to;
+    const resolvedParams = needsDateWindow
+      ? { ...params, from: isoNow(), to: isoDaysFromNow(3) }
+      : params;
+    const raw = await this.request<RawFixture[]>("/v4/fixtures", { ...resolvedParams });
+    const fixtures = raw.map(normalizeFixture);
+    fixtures.sort((a, b) => a.startTime.localeCompare(b.startTime));
+    // A whole-sport query (e.g. worldwide soccer) can return thousands of fixtures
+    // across every minor league — far more than any browsing UI should render or
+    // than a single DB upsert batch should carry. Cap to the soonest matches.
+    return needsDateWindow ? fixtures.slice(0, MAX_FIXTURES_PER_LIST) : fixtures;
   }
 
-  getOdds(fixtureId: string): Promise<Fixture> {
-    return this.request<Fixture>("/v4/odds", { fixtureId });
+  async getOdds(fixtureId: string): Promise<Fixture> {
+    const raw = await this.request<RawFixture>("/v4/odds", { fixtureId });
+    return normalizeFixture(raw);
   }
 
-  getOddsByTournaments(params: GetOddsByTournamentParams): Promise<Fixture[]> {
-    return this.request<Fixture[]>("/v4/odds-by-tournaments", {
+  async getOddsByTournaments(params: GetOddsByTournamentParams): Promise<Fixture[]> {
+    const raw = await this.request<RawFixture[]>("/v4/odds-by-tournaments", {
       tournamentIds: params.tournamentIds,
       bookmaker: params.bookmaker,
       oddsFormat: params.oddsFormat ?? "decimal",
     });
+    return raw.map(normalizeFixture);
   }
 
   getHistoricalOdds(params: GetHistoricalOddsParams): Promise<HistoricalOddsPoint[]> {

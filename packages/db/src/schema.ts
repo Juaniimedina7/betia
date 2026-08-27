@@ -124,6 +124,37 @@ export const betSlipLegs = pgTable(
   ],
 );
 
+/** Best-effort backup of the last known /v4/sports response, used when OddsPapi is unreachable. */
+export const sportsCache = pgTable("sports_cache", {
+  sportId: text("sport_id").primaryKey(),
+  name: text("name").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Last known fixture metadata + odds per fixture, upserted whenever a live OddsPapi
+ * call succeeds. Serves as a durable backup (unlike the 120s-TTL Redis cache) so
+ * `/odds`, `/odds/[sportId]` and `/fixtures/[fixtureId]` still have something to show
+ * when the live API fails.
+ */
+export const oddsCache = pgTable(
+  "odds_cache",
+  {
+    fixtureId: text("fixture_id").primaryKey(),
+    sportId: text("sport_id").notNull(),
+    tournamentId: text("tournament_id"),
+    participant1Id: text("participant1_id"),
+    participant2Id: text("participant2_id"),
+    participant1Name: text("participant1_name"),
+    participant2Name: text("participant2_name"),
+    startTime: timestamp("start_time", { withTimezone: true }),
+    statusId: text("status_id"),
+    bookmakerOdds: jsonb("bookmaker_odds"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("odds_cache_sport_id_idx").on(table.sportId)],
+);
+
 export const usersRelations = relations(users, ({ many }) => ({
   betSlips: many(betSlips),
   apiTokens: many(apiTokens),

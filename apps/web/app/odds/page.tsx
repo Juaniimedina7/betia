@@ -7,10 +7,12 @@ export const dynamic = "force-dynamic";
 
 export default async function OddsPage() {
   let sports: Awaited<ReturnType<typeof listSports>>["sports"] = [];
+  let source: Awaited<ReturnType<typeof listSports>>["source"] | null = null;
+  let cachedAt: string | undefined;
   let error: string | null = null;
 
   try {
-    ({ sports } = await listSports({}));
+    ({ sports, source, cachedAt } = await listSports({}));
   } catch (e) {
     error = e instanceof Error ? e.message : "No se pudo cargar la lista de deportes";
   }
@@ -39,6 +41,13 @@ export default async function OddsPage() {
           <p className="mt-1 text-[var(--color-ink-muted)]">
             {error}. Revisá que <code className="tnum">ODDSPAPI_API_KEY</code> esté configurada.
           </p>
+        </div>
+      )}
+
+      {!error && source === "cache" && (
+        <div className="mt-8 rounded-2xl border border-[var(--line-strong)] bg-[rgba(255,255,255,0.03)] p-4 text-sm text-[var(--color-ink-muted)]">
+          Mostrando la última lista guardada{cachedAt ? ` (${new Date(cachedAt).toLocaleString("es-AR")})` : ""} — no
+          pudimos conectar con OddsPapi ahora mismo.
         </div>
       )}
 

@@ -10,7 +10,10 @@ combos, servidor MCP, schema de base de datos) y está desplegado en Vercel como
 - [x] Repo + monorepo pnpm (`apps/web`, `packages/{oddspapi-client,combo-engine,db,mcp-tools}`)
 - [x] Proyecto Vercel linkeado (`apps/web/.vercel/project.json`)
 - [x] Neon Postgres provisionado y conectado (`DATABASE_URL` en Vercel)
-- [x] Schema de base de datos pusheado (`users`, `api_tokens`, `bet_slips`, `bet_slip_legs`)
+- [x] Schema de base de datos pusheado (`users`, `api_tokens`, `bet_slips`, `bet_slip_legs`,
+      `sports_cache`, `odds_cache` — estas dos últimas son el respaldo durable de
+      deportes/partidos/cuotas que usan `/odds`, `/odds/[sportId]` y
+      `/fixtures/[fixtureId]` cuando OddsPapi no responde)
 - [x] `MCP_INTERNAL_JWT_SECRET` y `CRON_SECRET` generados y guardados en Vercel (dev/preview/prod)
 - [x] `next build` compila y tipa sin errores (falta config real de Clerk para que el
       prerender de `/_not-found` no falle — ver abajo)
@@ -68,3 +71,19 @@ combos, servidor MCP, schema de base de datos) y está desplegado en Vercel como
   (rechaza con 400 si falta). El cron de ingesta, `build_combo` y la tool MCP
   `get_odds_by_tournament` usan `pinnacle` como default (configurable vía
   `ODDSPAPI_BOOKMAKER` para el cron); ver `GET /v4/bookmakers` para otros slugs.
+- `GET /v4/fixtures` exige `from`/`to` (máximo 10 días de rango) cuando se pide sólo por
+  `sportId` sin `tournamentId`. `OddsPapiClient.listFixtures` pone un default de 3 días y
+  además corta a los 200 partidos más próximos — pedir un deporte entero (ej. fútbol
+  mundial) sin acotar puede devolver miles de fixtures, demasiado para renderizar o para
+  un solo upsert a Postgres.
+- Los campos que devuelve la API real (`sportName`, `tournamentName`, ids numéricos, etc.)
+  no coinciden con los nombres que usa el resto de la app (`name`, ids como string) — la
+  normalización vive toda en `packages/oddspapi-client/src/index.ts` (`normalizeSport`,
+  `normalizeTournament`, `normalizeFixture`); el resto del código nunca ve el shape crudo.
+- `listSports`/`listFixtures`/`getOdds` (en `packages/mcp-tools/src/tools/`) escriben en
+  `sports_cache`/`odds_cache` en cada llamada en vivo exitosa, y leen de esas tablas como
+  fallback si OddsPapi falla — devuelven `source: "cache" | "db-cache"` y `cachedAt` para
+  que la UI avise que está mostrando datos guardados en vez de romper la página. Esas
+  escrituras van con `await` (no fire-and-forget): un `void` ahí se pierde porque Next.js
+  no garantiza que una promesa sin await siga viva después de que el Server Component
+  termine de renderizar.
