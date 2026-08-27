@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
+import { currentUserIsAdmin } from "@/lib/admin";
 
 const LINKS = [
   { href: "/odds", label: "Cuotas" },
@@ -8,7 +9,8 @@ const LINKS = [
   { href: "/bets", label: "Mis apuestas" },
 ];
 
-export function NavBar({ clerkEnabled }: { clerkEnabled: boolean }) {
+export async function NavBar({ clerkEnabled }: { clerkEnabled: boolean }) {
+  const admin = clerkEnabled ? await currentUserIsAdmin() : false;
   return (
     <header className="sticky top-0 z-50 border-b border-[var(--line)] bg-[rgba(7,11,17,0.72)] backdrop-blur-xl">
       <nav className="container-page flex h-16 items-center justify-between gap-4">
@@ -26,6 +28,14 @@ export function NavBar({ clerkEnabled }: { clerkEnabled: boolean }) {
                 {link.label}
               </Link>
             ))}
+            {admin && (
+              <Link
+                href="/admin"
+                className="rounded-lg px-3 py-1.5 text-sm text-[var(--color-edge)] transition-colors hover:bg-white/5"
+              >
+                Admin
+              </Link>
+            )}
           </div>
         </div>
 

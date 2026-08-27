@@ -11,6 +11,7 @@ interface Usage {
   used: number;
   limit: number;
   remaining: number;
+  admin?: boolean;
 }
 
 const SUGGESTIONS = [
@@ -77,7 +78,7 @@ export default function AgentPage() {
     if (status === "ready") refreshUsage();
   }, [status, refreshUsage]);
 
-  const outOfRuns = usage ? usage.remaining <= 0 : false;
+  const outOfRuns = usage && !usage.admin ? usage.remaining <= 0 : false;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -103,8 +104,13 @@ export default function AgentPage() {
             Pedí tu combinada
           </h1>
           {usage && (
-            <span className="chip tnum" title={`Plan ${usage.planId}`}>
-              {usage.remaining} de {usage.limit} combinadas este mes
+            <span
+              className={`chip tnum ${usage.admin ? "chip-edge" : ""}`}
+              title={`Plan ${usage.planId}`}
+            >
+              {usage.admin
+                ? "Admin · combinadas ilimitadas"
+                : `${usage.remaining} de ${usage.limit} combinadas este mes`}
             </span>
           )}
         </div>

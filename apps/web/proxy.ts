@@ -5,6 +5,7 @@ const isProtectedRoute = createRouteMatcher([
   "/agent(.*)",
   "/bets(.*)",
   "/settings(.*)",
+  "/admin(.*)",
   "/api/agent(.*)",
 ]);
 
