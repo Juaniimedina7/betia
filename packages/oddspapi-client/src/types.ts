@@ -43,6 +43,22 @@ export interface Fixture {
   bookmakerOdds?: BookmakerOdds;
 }
 
+export interface MarketOutcomeDef {
+  outcomeId: string;
+  outcomeName: string;
+}
+
+/** Static reference data from GET /v4/markets — human-readable market/outcome names. */
+export interface MarketDef {
+  marketId: string;
+  sportId: string;
+  marketName: string;
+  marketType: string;
+  handicap: number;
+  period: string;
+  outcomes: MarketOutcomeDef[];
+}
+
 export interface HistoricalOddsPoint {
   fixtureId: string;
   bookmaker: string;

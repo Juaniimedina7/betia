@@ -155,6 +155,27 @@ export const oddsCache = pgTable(
   (table) => [index("odds_cache_sport_id_idx").on(table.sportId)],
 );
 
+/**
+ * Static reference data from GET /v4/markets: human-readable market/outcome names,
+ * keyed by OddsPapi's numeric marketId. Lets the UI show "Ganador del partido"
+ * instead of a bare marketId. Rarely changes — seeded/refreshed occasionally, not
+ * on every request.
+ */
+export const marketCatalog = pgTable(
+  "market_catalog",
+  {
+    marketId: text("market_id").primaryKey(),
+    sportId: text("sport_id").notNull(),
+    marketName: text("market_name").notNull(),
+    marketType: text("market_type").notNull(),
+    handicap: numeric("handicap", { precision: 6, scale: 2 }),
+    period: text("period"),
+    outcomes: jsonb("outcomes").notNull(), // [{ outcomeId: string, outcomeName: string }]
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("market_catalog_sport_id_idx").on(table.sportId)],
+);
+
 export const usersRelations = relations(users, ({ many }) => ({
   betSlips: many(betSlips),
   apiTokens: many(apiTokens),

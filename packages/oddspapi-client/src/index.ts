@@ -5,6 +5,7 @@ import type {
   GetOddsByTournamentParams,
   HistoricalOddsPoint,
   ListFixturesParams,
+  MarketDef,
   Sport,
   Tournament,
 } from "./types";
@@ -32,6 +33,16 @@ interface RawTournament {
   tournamentName: string;
   categorySlug?: string;
   categoryName?: string;
+}
+
+interface RawMarket {
+  marketId: number;
+  sportId: number;
+  marketName: string;
+  marketType: string;
+  handicap: number;
+  period: string;
+  outcomes: Array<{ outcomeId: number; outcomeName: string }>;
 }
 
 interface RawFixture {
@@ -225,6 +236,24 @@ export class OddsPapiClient {
 
   getHistoricalOdds(params: GetHistoricalOddsParams): Promise<HistoricalOddsPoint[]> {
     return this.request<HistoricalOddsPoint[]>("/v4/historical-odds", { ...params });
+  }
+
+  /**
+   * Full market/outcome name catalog (~30k entries across all sports, ~9MB) — OddsPapi
+   * doesn't filter this server-side despite accepting a sportId param, so callers should
+   * fetch once and cache/filter client-side rather than calling this per-request.
+   */
+  async listMarkets(): Promise<MarketDef[]> {
+    const raw = await this.request<RawMarket[]>("/v4/markets");
+    return raw.map((m) => ({
+      marketId: String(m.marketId),
+      sportId: String(m.sportId),
+      marketName: m.marketName,
+      marketType: m.marketType,
+      handicap: m.handicap,
+      period: m.period,
+      outcomes: m.outcomes.map((o) => ({ outcomeId: String(o.outcomeId), outcomeName: o.outcomeName })),
+    }));
   }
 
   getScores(fixtureId: string): Promise<unknown> {

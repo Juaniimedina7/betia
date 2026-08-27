@@ -12,10 +12,11 @@ export default async function FixturePage({ params }: PageProps<"/fixtures/[fixt
   let source: Awaited<ReturnType<typeof getOdds>>["source"] | null = null;
   let cachedAt: string | undefined;
   let matchup: Awaited<ReturnType<typeof getOdds>>["matchup"];
+  let marketCatalog: Awaited<ReturnType<typeof getOdds>>["marketCatalog"] = {};
   let error: string | null = null;
 
   try {
-    ({ bookmakerOdds, source, cachedAt, matchup } = await getOdds({ fixtureId }));
+    ({ bookmakerOdds, source, cachedAt, matchup, marketCatalog } = await getOdds({ fixtureId }));
   } catch (e) {
     error = e instanceof Error ? e.message : "No se pudieron cargar las cuotas";
   }
@@ -67,7 +68,7 @@ export default async function FixturePage({ params }: PageProps<"/fixtures/[fixt
         {error ? (
           <p className="text-[var(--color-danger)]">{error}</p>
         ) : (
-          <LiveOddsTable fixtureId={fixtureId} initialOdds={bookmakerOdds} />
+          <LiveOddsTable fixtureId={fixtureId} initialOdds={bookmakerOdds} marketCatalog={marketCatalog} />
         )}
       </div>
     </div>
