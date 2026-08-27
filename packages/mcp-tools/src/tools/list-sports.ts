@@ -9,15 +9,35 @@ export const listSportsInput = z.object({
 
 export type ListSportsInput = z.infer<typeof listSportsInput>;
 
+// Product scope for now: only these sports, shown with Spanish names. Keyed by
+// OddsPapi's sportId (see GET /v4/sports for the full catalog).
+const SPANISH_SPORT_NAMES: Record<string, string> = {
+  "10": "Fútbol",
+  "26": "Rugby",
+  "11": "Básquet",
+  "12": "Tenis",
+};
+
+function localizeSports(sports: Sport[]): Sport[] {
+  return sports
+    .filter((s) => s.sportId in SPANISH_SPORT_NAMES)
+    .map((s) => ({ ...s, name: SPANISH_SPORT_NAMES[s.sportId]! }))
+    .sort(
+      (a, b) =>
+        Object.keys(SPANISH_SPORT_NAMES).indexOf(a.sportId) -
+        Object.keys(SPANISH_SPORT_NAMES).indexOf(b.sportId),
+    );
+}
+
 export async function listSports(_input: ListSportsInput) {
   try {
-    const sports = await getOddsPapiClient().listSports();
+    const sports = localizeSports(await getOddsPapiClient().listSports());
     await cacheSports(sports);
     return { sports, source: "live" as const, cachedAt: undefined as string | undefined };
   } catch (liveError) {
     const cached = await readCachedSports();
     if (cached.sports.length > 0) {
-      return { ...cached, source: "cache" as const };
+      return { ...cached, sports: localizeSports(cached.sports), source: "cache" as const };
     }
     throw liveError;
   }
