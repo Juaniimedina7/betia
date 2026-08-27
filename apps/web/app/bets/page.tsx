@@ -26,7 +26,7 @@ export default async function BetsPage() {
       <div className="container-page flex min-h-[60vh] flex-col items-center justify-center py-14 text-center">
         <h1 className="font-display text-2xl font-extrabold">Iniciá sesión para ver tus apuestas</h1>
         <p className="mt-2 max-w-sm text-sm text-[var(--color-ink-muted)]">
-          Guardá los combos que arma el agente y seguí sus resultados desde acá.
+          Guardá las combinadas que arma el agente y seguí sus resultados desde acá.
         </p>
         <Link href="/agent" className="btn btn-primary mt-6">Ir al agente</Link>
       </div>

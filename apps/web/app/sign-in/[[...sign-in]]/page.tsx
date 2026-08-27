@@ -7,7 +7,7 @@ export default function SignInPage() {
         <span className="font-display text-2xl font-extrabold tracking-tight">
           BET<span style={{ color: "var(--color-edge)" }}>IA</span>
         </span>
-        <p className="mt-2 text-sm text-[var(--color-ink-muted)]">Entrá para armar y guardar tus combos.</p>
+        <p className="mt-2 text-sm text-[var(--color-ink-muted)]">Entrá para armar y guardar tus combinadas.</p>
       </div>
       <SignIn />
     </div>

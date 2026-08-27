@@ -14,9 +14,9 @@ interface Usage {
 }
 
 const SUGGESTIONS = [
-  "Armame un combo de 50x con fútbol de hoy",
+  "Armame una combinada de 50x con fútbol de hoy",
   "Una combinada de 5 partidos, perfil conservador",
-  "Combo de 10x con tenis, máximo 3 patas",
+  "Combinada de 10x con tenis, máximo 3 patas",
 ];
 
 /** Best-effort extraction of a build_combo result into ticket props. */
@@ -100,11 +100,11 @@ export default function AgentPage() {
             className="font-display font-extrabold leading-tight"
             style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.6rem)", letterSpacing: "-0.03em" }}
           >
-            Pedí tu combo
+            Pedí tu combinada
           </h1>
           {usage && (
             <span className="chip tnum" title={`Plan ${usage.planId}`}>
-              {usage.remaining} de {usage.limit} combos este mes
+              {usage.remaining} de {usage.limit} combinadas este mes
             </span>
           )}
         </div>
@@ -163,7 +163,7 @@ export default function AgentPage() {
                             legs={combo.legs}
                             multiplier={combo.multiplier}
                             avgEdge={combo.avgEdge}
-                            label="Combo del agente"
+                            label="Combinada del agente"
                           />
                         );
                       }
@@ -201,10 +201,10 @@ export default function AgentPage() {
             className="card p-5 text-center"
             style={{ borderColor: "rgba(184,255,53,0.4)", background: "linear-gradient(180deg, rgba(184,255,53,0.06), transparent)" }}
           >
-            <p className="font-display text-lg font-extrabold">Te quedaste sin combos este mes</p>
+            <p className="font-display text-lg font-extrabold">Te quedaste sin combinadas este mes</p>
             <p className="mx-auto mt-1.5 max-w-md text-sm text-[var(--color-ink-muted)]">
               Pasate a un plan superior y seguí armando combinadas al instante. Pro te da
-              600 combos por mes.
+              600 combinadas por mes.
             </p>
             <Link href="/pricing" className="btn btn-primary mt-4">
               Ver planes →
@@ -223,7 +223,7 @@ export default function AgentPage() {
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Armame un combo de 50x con fútbol de hoy…"
+              placeholder="Armame una combinada de 50x con fútbol de hoy…"
               className="flex-1 bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-[var(--color-ink-faint)]"
             />
             <button type="submit" disabled={busy || !input.trim()} className="btn btn-primary disabled:opacity-40">

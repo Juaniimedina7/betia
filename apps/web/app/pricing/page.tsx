@@ -4,7 +4,7 @@ import { PLANS, formatArs, pricePerRun } from "@/lib/plans";
 
 export const metadata = {
   title: "Precios — BETIA",
-  description: "Planes de BETIA por combos mensuales. Free para probar, Starter y Pro para ir en serio.",
+  description: "Planes de BETIA por combinadas mensuales. Free para probar, Starter y Pro para ir en serio.",
 };
 
 export default function PricingPage() {
@@ -17,13 +17,13 @@ export default function PricingPage() {
             className="mt-3 font-display font-black leading-[0.98]"
             style={{ fontSize: "clamp(2.2rem, 5vw, 3.6rem)", letterSpacing: "-0.035em" }}
           >
-            Pagás por combos,
+            Pagás por combinadas,
             <br />
             no por promesas.
           </h1>
           <p className="mx-auto mt-5 max-w-lg text-[var(--color-ink-muted)]">
-            Cada combo que arma el agente cuenta como un uso. Elegí cuántos querés por
-            mes — el precio por combo se desploma cuando vas en serio.
+            Cada combinada que arma el agente cuenta como un uso. Elegí cuántos querés por
+            mes — el precio por combinada se desploma cuando vas en serio.
           </p>
         </div>
       </Reveal>
@@ -84,7 +84,7 @@ export default function PricingPage() {
                           : undefined
                       }
                     >
-                      ≈ {formatArs(perRun)} por combo
+                      ≈ {formatArs(perRun)} por combinada
                     </span>
                   ) : (
                     <span className="chip">Sin tarjeta</span>
@@ -99,7 +99,7 @@ export default function PricingPage() {
                   >
                     {plan.runs}
                   </span>
-                  <span className="ml-1.5 text-sm text-[var(--color-ink-muted)]">combos / mes</span>
+                  <span className="ml-1.5 text-sm text-[var(--color-ink-muted)]">combinadas / mes</span>
                 </div>
 
                 {/* Features */}
@@ -145,7 +145,7 @@ export default function PricingPage() {
       <Reveal delay={200}>
         <p className="mx-auto mt-10 max-w-xl text-center text-xs text-[var(--color-ink-muted)]">
           Precios en pesos argentinos, sin impuestos incluidos. Cancelás cuando quieras.
-          Los combos no usados no se acumulan al mes siguiente. BETIA da recomendaciones
+          Las combinadas no usadas no se acumulan al mes siguiente. BETIA da recomendaciones
           informativas — no coloca apuestas.
         </p>
       </Reveal>

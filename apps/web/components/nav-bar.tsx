@@ -47,7 +47,7 @@ export function NavBar({ clerkEnabled }: { clerkEnabled: boolean }) {
               </Show>
               <Show when="signed-in">
                 <Link href="/agent" className="btn btn-primary !px-3.5 !py-2 !text-sm">
-                  Armar combo
+                  Armar combinada
                 </Link>
                 <UserButton
                   appearance={{ elements: { avatarBox: "h-8 w-8" } }}

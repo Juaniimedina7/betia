@@ -7,7 +7,7 @@ export default function SignUpPage() {
         <span className="font-display text-2xl font-extrabold tracking-tight">
           BET<span style={{ color: "var(--color-edge)" }}>IA</span>
         </span>
-        <p className="mt-2 text-sm text-[var(--color-ink-muted)]">Creá tu cuenta y pedile un combo al agente.</p>
+        <p className="mt-2 text-sm text-[var(--color-ink-muted)]">Creá tu cuenta y pedile una combinada al agente.</p>
       </div>
       <SignUp />
     </div>

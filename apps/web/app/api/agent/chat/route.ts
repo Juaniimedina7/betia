@@ -22,7 +22,7 @@ export async function POST(req: Request) {
         planId: quota.planId,
         used: quota.used,
         limit: quota.limit,
-        message: "Te quedaste sin combos este mes. Pasate a un plan superior para seguir.",
+        message: "Te quedaste sin combinadas este mes. Pasate a un plan superior para seguir.",
       },
       { status: 402 },
     );

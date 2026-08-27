@@ -61,7 +61,7 @@ export default function HomePage() {
           <Reveal delay={240}>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/agent" className="btn btn-primary">
-                Armar mi combo
+                Armar mi combinada
                 <span aria-hidden>→</span>
               </Link>
               <Link href="/odds" className="btn btn-ghost">
@@ -140,7 +140,7 @@ export default function HomePage() {
               Decile qué multiplicador buscás. El resto lo hace BETIA.
             </h2>
             <p className="mx-auto mt-4 max-w-lg text-[var(--color-ink-muted)]">
-              &quot;Armame un combo de 50x con fútbol de hoy&quot; — y listo.
+              &quot;Armame una combinada de 50x con fútbol de hoy&quot; — y listo.
             </p>
             <div className="mt-7 flex justify-center">
               <Link href="/agent" className="btn btn-primary">
