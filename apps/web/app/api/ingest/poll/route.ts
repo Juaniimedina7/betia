@@ -114,14 +114,17 @@ export async function GET(req: Request) {
     sportsPolled = sports.length;
   }
 
-  const errors: Record<string, { message: string; status: number }> = {};
+  const errors: Record<string, { message: string; status: number; body?: string }> = {};
   for (const [key, outcome] of [
     ["fixtures", pollOutcome],
     ["sports", sportsOutcome],
   ] as const) {
     if (outcome.status === "rejected") {
       const err = outcome.reason;
-      errors[key] = err instanceof OddsPapiError ? { message: err.message, status: err.status } : { message: String(err), status: 0 };
+      errors[key] =
+        err instanceof OddsPapiError
+          ? { message: err.message, status: err.status, body: err.body.slice(0, 500) }
+          : { message: String(err), status: 0 };
     }
   }
 
