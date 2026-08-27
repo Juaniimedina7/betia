@@ -130,10 +130,11 @@ export class OddsPapiClient {
       } catch (err) {
         lastError = err;
         // OddsPapi occasionally 500s on heavy payloads (e.g. /v4/odds with many
-        // bookmakers) or times out under load — these are usually transient, so
-        // retry with a short backoff. Client errors (4xx) are not retried.
+        // bookmakers), times out under load, or 429s under its tight per-request
+        // pacing window — these are usually transient, so retry with a short
+        // backoff. Other client errors (4xx) are not retried.
         const isRetryable =
-          err instanceof OddsPapiError && (err.status === 0 || err.status >= 500);
+          err instanceof OddsPapiError && (err.status === 0 || err.status === 429 || err.status >= 500);
         if (!isRetryable || attempt === MAX_ATTEMPTS) throw err;
         await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
       }

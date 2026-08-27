@@ -2,6 +2,12 @@ import type { OddsPapiClient } from "../index";
 import type { OddsIngestionSource, OddsUpdateEvent } from "./types";
 
 const MAX_TOURNAMENT_IDS_PER_REQUEST = 5;
+// OddsPapi enforces a short per-request pacing window on /v4/odds-by-tournaments
+// (observed ~60ms); with a watchlist this size, batches land close enough together
+// to trip it, so space them out a bit.
+const BATCH_DELAY_MS = 200;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export interface RestPollingSourceOptions {
   client: OddsPapiClient;
@@ -49,6 +55,7 @@ export class RestPollingSource implements OddsIngestionSource {
     // watchlists longer than that have to be polled in batches.
     const fixtures: Awaited<ReturnType<OddsPapiClient["getOddsByTournaments"]>> = [];
     for (let i = 0; i < tournamentIds.length; i += MAX_TOURNAMENT_IDS_PER_REQUEST) {
+      if (i > 0) await sleep(BATCH_DELAY_MS);
       const batch = tournamentIds.slice(i, i + MAX_TOURNAMENT_IDS_PER_REQUEST);
       const batchFixtures = await this.options.client.getOddsByTournaments({
         tournamentIds: batch,

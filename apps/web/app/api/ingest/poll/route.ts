@@ -5,11 +5,68 @@ import { sql } from "drizzle-orm";
 const ODDS_CACHE_TTL_SECONDS = 120;
 const DEFAULT_BOOKMAKER = "pinnacle";
 
+/**
+ * Top-flight soccer leagues across Europe and Latin America, plus the main
+ * continental cups. Hardcoded (rather than driven by WATCHED_TOURNAMENT_IDS) so the
+ * cron works without any per-environment config — verified against a live
+ * GET /v4/tournaments?sportId=10 pull, ids stable per the OddsPapi catalog.
+ */
+const DEFAULT_WATCHED_TOURNAMENT_IDS = [
+  // Europe — top flights
+  17, // England: Premier League
+  8, // Spain: LaLiga
+  23, // Italy: Serie A
+  35, // Germany: Bundesliga
+  34, // France: Ligue 1
+  238, // Portugal: Liga Portugal
+  37, // Netherlands: Eredivisie
+  38, // Belgium: Pro League
+  36, // Scotland: Premiership
+  215, // Switzerland: Super League
+  45, // Austria: Bundesliga
+  185, // Greece: Super League
+  202, // Poland: Ekstraklasa
+  172, // Czechia: 1. Liga
+  39, // Denmark: Superliga
+  40, // Sweden: Allsvenskan
+  20, // Norway: Eliteserien
+  170, // Croatia: HNL
+  210, // Serbia: Superliga
+  218, // Ukraine: Premier League
+  203, // Russia: Premier League
+  152, // Romania: Superliga
+  // Europe — continental cups
+  7, // UEFA Champions League
+  679, // UEFA Europa League
+  34480, // UEFA Conference League
+  // South America — continental cups
+  384, // Copa Libertadores
+  480, // Copa Sudamericana
+  133, // Copa America
+  // Latin America — top flights
+  155, // Argentina: Liga Profesional
+  325, // Brazil: Brasileiro Serie A
+  27665, // Chile: Primera Division
+  278, // Uruguay: Primera Division
+  27098, // Paraguay: Division de Honor
+  27070, // Colombia: Primera A
+  406, // Peru: Liga 1
+  240, // Ecuador: LigaPro Primera A
+  33980, // Bolivia: Division Profesional
+  231, // Venezuela: Primera Division
+  27464, // Mexico: Liga MX
+  27092, // Costa Rica: Primera Division
+  27414, // Honduras: Liga Nacional
+  27396, // Guatemala: Liga Nacional
+  27102, // Panama: Liga Panamena de Futbol
+].map(String);
+
 function watchedTournamentIds(): string[] {
-  return (process.env.WATCHED_TOURNAMENT_IDS ?? "")
+  const fromEnv = (process.env.WATCHED_TOURNAMENT_IDS ?? "")
     .split(",")
     .map((id) => id.trim())
     .filter(Boolean);
+  return fromEnv.length > 0 ? fromEnv : DEFAULT_WATCHED_TOURNAMENT_IDS;
 }
 
 export async function GET(req: Request) {
