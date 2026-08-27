@@ -1,0 +1,23 @@
+name: Poll odds every 30 minutes
+
+# Vercel Hobby solo permite crons de 1 vez por dia, asi que esto corre desde
+# GitHub Actions en su lugar y pega directo al endpoint de ingesta.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: # permite dispararlo a mano desde la pestania Actions
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Poll odds
+        run: |
+          code=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            "https://betia-web-brown.vercel.app/api/ingest/poll" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+          echo "HTTP $code"
+          cat /tmp/response.json
+          if [ "$code" != "200" ]; then
+            exit 1
+          fi
