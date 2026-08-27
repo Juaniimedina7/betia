@@ -1,6 +1,8 @@
 import type { OddsPapiClient } from "../index";
 import type { OddsIngestionSource, OddsUpdateEvent } from "./types";
 
+const MAX_TOURNAMENT_IDS_PER_REQUEST = 5;
+
 export interface RestPollingSourceOptions {
   client: OddsPapiClient;
   /** Tournament ids to poll — keep this bounded to stay within free-tier request quotas. */
@@ -43,10 +45,17 @@ export class RestPollingSource implements OddsIngestionSource {
       return { fixturesPolled: 0 };
     }
 
-    const fixtures = await this.options.client.getOddsByTournaments({
-      tournamentIds,
-      bookmaker: this.options.bookmaker,
-    });
+    // /v4/odds-by-tournaments rejects more than 5 tournamentIds per call, so
+    // watchlists longer than that have to be polled in batches.
+    const fixtures: Awaited<ReturnType<OddsPapiClient["getOddsByTournaments"]>> = [];
+    for (let i = 0; i < tournamentIds.length; i += MAX_TOURNAMENT_IDS_PER_REQUEST) {
+      const batch = tournamentIds.slice(i, i + MAX_TOURNAMENT_IDS_PER_REQUEST);
+      const batchFixtures = await this.options.client.getOddsByTournaments({
+        tournamentIds: batch,
+        bookmaker: this.options.bookmaker,
+      });
+      fixtures.push(...batchFixtures);
+    }
 
     for (const fixture of fixtures) {
       if (!fixture.bookmakerOdds) continue;
