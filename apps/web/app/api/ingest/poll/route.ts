@@ -39,27 +39,41 @@ export async function GET(req: Request) {
       });
   });
 
-  try {
-    const [result, sports] = await Promise.all([source.poll(), client.listSports()]);
+  // Poll independently from the sports-list refresh: a failure in one (e.g. OddsPapi
+  // 500s on /v4/sports) shouldn't discard fixture odds the other already fetched and
+  // cached via the onUpdate side effect above.
+  const [pollOutcome, sportsOutcome] = await Promise.allSettled([source.poll(), client.listSports()]);
 
-    if (sports.length > 0) {
-      await db
-        .insert(sportsCache)
-        .values(sports.map((s) => ({ sportId: s.sportId, name: s.name })))
-        .onConflictDoUpdate({
-          target: sportsCache.sportId,
-          set: { name: sql`excluded.name`, updatedAt: sql`now()` },
-        });
-    }
-
-    return Response.json({ ...result, sportsPolled: sports.length });
-  } catch (err) {
-    if (err instanceof OddsPapiError) {
-      return Response.json(
-        { error: err.message, status: err.status },
-        { status: err.status === 0 ? 504 : 502 },
-      );
-    }
-    throw err;
+  let sportsPolled = 0;
+  if (sportsOutcome.status === "fulfilled" && sportsOutcome.value.length > 0) {
+    const sports = sportsOutcome.value;
+    await db
+      .insert(sportsCache)
+      .values(sports.map((s) => ({ sportId: s.sportId, name: s.name })))
+      .onConflictDoUpdate({
+        target: sportsCache.sportId,
+        set: { name: sql`excluded.name`, updatedAt: sql`now()` },
+      });
+    sportsPolled = sports.length;
   }
+
+  const errors: Record<string, { message: string; status: number }> = {};
+  for (const [key, outcome] of [
+    ["fixtures", pollOutcome],
+    ["sports", sportsOutcome],
+  ] as const) {
+    if (outcome.status === "rejected") {
+      const err = outcome.reason;
+      errors[key] = err instanceof OddsPapiError ? { message: err.message, status: err.status } : { message: String(err), status: 0 };
+    }
+  }
+
+  const fixturesPolled = pollOutcome.status === "fulfilled" ? pollOutcome.value.fixturesPolled : 0;
+  const hasErrors = Object.keys(errors).length > 0;
+  const allFailed = pollOutcome.status === "rejected" && sportsOutcome.status === "rejected";
+
+  return Response.json(
+    { fixturesPolled, sportsPolled, ...(hasErrors && { errors }) },
+    { status: allFailed ? 502 : 200 },
+  );
 }
