@@ -40,6 +40,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <NavBar clerkEnabled={clerkEnabled} />
       <main className="flex-1">{children}</main>
       <SiteFooter />
+      <Analytics />
     </body>
   );
 
