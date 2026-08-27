@@ -122,6 +122,29 @@ export class OddsPapiClient {
     path: string,
     params: Record<string, string | number | string[] | undefined> = {},
   ): Promise<T> {
+    const MAX_ATTEMPTS = 3;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        return await this.requestOnce<T>(path, params);
+      } catch (err) {
+        lastError = err;
+        // OddsPapi occasionally 500s on heavy payloads (e.g. /v4/odds with many
+        // bookmakers) or times out under load — these are usually transient, so
+        // retry with a short backoff. Client errors (4xx) are not retried.
+        const isRetryable =
+          err instanceof OddsPapiError && (err.status === 0 || err.status >= 500);
+        if (!isRetryable || attempt === MAX_ATTEMPTS) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
+      }
+    }
+    throw lastError;
+  }
+
+  private async requestOnce<T>(
+    path: string,
+    params: Record<string, string | number | string[] | undefined>,
+  ): Promise<T> {
     const url = new URL(this.host + path);
     url.searchParams.set("apiKey", this.apiKey);
     for (const [key, value] of Object.entries(params)) {
