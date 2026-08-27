@@ -1,9 +1,23 @@
 # Setup pendiente
 
 Este proyecto ya tiene el scaffolding completo (web app, cliente OddsPapi, motor de
-combos, servidor MCP, schema de base de datos) y está desplegado en Vercel como
-`agustinvenutolo-3540s-projects/web`. Ver el plan completo en
+combos, servidor MCP, schema de base de datos). Ver el plan completo en
 `.claude/plans` (o pedirle a Claude que lo recupere) para el diseño detallado.
+
+## Producción
+
+El proyecto real de producción es **`betia-web`**, en la cuenta de Vercel de Juani
+(`juanis-projects-5ea574f1`) — URL: https://betia-web-brown.vercel.app. Se deploya
+solo en cada push a `main` vía `.github/workflows/deploy.yml` (usa `VERCEL_TOKEN`
+guardado como secret de GitHub, a nombre de esa cuenta).
+
+Hubo en paralelo un proyecto `agustinvenutolo-3540s-projects/web` (linkeado
+localmente en `apps/web/.vercel/`) que se usó para debug pero **ya fue borrado** —
+no es el de producción, no confundir si aparece en historial.
+
+Recordatorio importante de Vercel: cambiar una env var en el dashboard **no
+actualiza los deployments ya corriendo** — hace falta un redeploy (push a `main`,
+o "Redeploy" desde el dashboard) para que tome el valor nuevo.
 
 ## Ya hecho
 
@@ -44,10 +58,12 @@ combos, servidor MCP, schema de base de datos) y está desplegado en Vercel como
      vercel env add CLERK_WEBHOOK_SIGNING_SECRET production --scope agustinvenutolo-3540s-projects
      ```
 
-3. **Plan de Vercel (Hobby vs Pro)**: la cuenta está en el plan Hobby, que solo permite
-   crons con frecuencia diaria. `vercel.json` quedó con `0 0 * * *` (una vez por día)
-   para poder deployar; el diseño original pensaba en pollear cada 1-2 minutos. Para
-   eso hace falta pasar el proyecto a Pro y volver a poner algo como `*/2 * * * *`.
+3. **Cron de ingesta — corre fuera de Vercel**: la cuenta está en plan Hobby, que solo
+   permite crons nativos de Vercel con frecuencia diaria (`vercel.json` no tiene cron
+   declarado a propósito). En su lugar, `.github/workflows/poll-odds.yml` pollea
+   `POST/GET /api/ingest/poll` cada 30 minutos desde GitHub Actions, sin depender del
+   plan de Vercel. Requiere un secret de GitHub `CRON_SECRET` con el mismo valor que
+   la env var `CRON_SECRET` del proyecto `betia-web` en Vercel.
 
 4. **AI Gateway**: no necesita configuración manual en Vercel (usa OIDC vía
    `vercel env pull`). Si van a correr el chat del agente fuera de Vercel (CI, local sin
