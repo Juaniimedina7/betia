@@ -86,14 +86,19 @@ export async function GET(req: Request) {
 
   const db = getDb();
   source.onUpdate(async (event) => {
-    await cache.setFixtureOdds(event.fixtureId, event.bookmakerOdds, ODDS_CACHE_TTL_SECONDS);
-    await db
-      .insert(oddsCache)
-      .values({ fixtureId: event.fixtureId, sportId: "", bookmakerOdds: event.bookmakerOdds })
-      .onConflictDoUpdate({
-        target: oddsCache.fixtureId,
-        set: { bookmakerOdds: sql`excluded.bookmaker_odds`, updatedAt: sql`now()` },
-      });
+    // Independent, best-effort writes: Redis being unreachable/unconfigured
+    // shouldn't stop the durable Postgres backup from getting this fixture's odds,
+    // and vice versa.
+    await Promise.allSettled([
+      cache.setFixtureOdds(event.fixtureId, event.bookmakerOdds, ODDS_CACHE_TTL_SECONDS),
+      db
+        .insert(oddsCache)
+        .values({ fixtureId: event.fixtureId, sportId: "", bookmakerOdds: event.bookmakerOdds })
+        .onConflictDoUpdate({
+          target: oddsCache.fixtureId,
+          set: { bookmakerOdds: sql`excluded.bookmaker_odds`, updatedAt: sql`now()` },
+        }),
+    ]);
   });
 
   // Poll independently from the sports-list refresh: a failure in one (e.g. OddsPapi
