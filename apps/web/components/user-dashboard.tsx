@@ -26,11 +26,15 @@ export function UserDashboard({
   initialUsage,
   events,
   eventsError,
+  eventsStale,
+  eventsCachedAt,
 }: {
   firstName: string | null;
   initialUsage: DashboardUsage | null;
   events: FeaturedEvent[];
   eventsError: string | null;
+  eventsStale: boolean;
+  eventsCachedAt: string | undefined;
 }) {
   const [usage, setUsage] = useState<DashboardUsage | null>(initialUsage);
 
@@ -118,6 +122,8 @@ export function UserDashboard({
           <FeaturedEvents
             events={events}
             error={eventsError}
+            stale={eventsStale}
+            cachedAt={eventsCachedAt}
             onPick={onPick}
             onCombine={onCombine}
           />

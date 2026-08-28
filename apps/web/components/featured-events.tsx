@@ -14,6 +14,11 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: "proximos", label: "Próximos" },
 ];
 
+/** Signed percentage: real de-vigged edges are often negative, so never hardcode "+". */
+function formatEdge(edgePct: number): string {
+  return `${edgePct >= 0 ? "+" : "−"}${Math.abs(edgePct).toFixed(1)}%`;
+}
+
 function formatKickoff(startTime: string): string {
   const date = new Date(startTime);
   if (Number.isNaN(date.getTime())) return "";
@@ -32,11 +37,15 @@ function formatKickoff(startTime: string): string {
 export function FeaturedEvents({
   events,
   error,
+  stale,
+  cachedAt,
   onPick,
   onCombine,
 }: {
   events: FeaturedEvent[];
   error: string | null;
+  stale: boolean;
+  cachedAt: string | undefined;
   onPick: (event: FeaturedEvent, pick: FeaturedPick) => void;
   onCombine: () => void;
 }) {
@@ -75,6 +84,14 @@ export function FeaturedEvents({
         </div>
       )}
 
+      {!error && stale && (
+        <p className="rounded-2xl border border-[var(--line-strong)] bg-white/[0.03] p-4 text-sm text-[var(--color-ink-muted)]">
+          Mostrando las últimas cuotas guardadas
+          {cachedAt ? ` (${new Date(cachedAt).toLocaleString("es-AR")})` : ""} — no pudimos
+          conectar con OddsPapi ahora mismo.
+        </p>
+      )}
+
       {!error && visible.length === 0 && (
         <p className="card p-6 text-sm text-[var(--color-ink-muted)]">
           {events.length === 0
@@ -109,8 +126,11 @@ export function FeaturedEvents({
                 </p>
               </div>
 
-              <span className="chip chip-edge tnum whitespace-nowrap">
-                +{event.edgePct.toFixed(1)}% edge
+              <span
+                className={`chip tnum whitespace-nowrap ${event.edgePct > 0 ? "chip-edge" : ""}`}
+                title="Mejor valor del partido contra el precio justo de-vigueado"
+              >
+                {formatEdge(event.edgePct)} edge
               </span>
             </div>
 

@@ -19,7 +19,7 @@ export default async function HomePage() {
   // Admins bypass the quota entirely — same shape /api/usage returns for them.
   const admin = isAdminRole(user.publicMetadata);
 
-  const [{ events, error }, usage] = await Promise.all([
+  const [{ events, error, source, cachedAt }, usage] = await Promise.all([
     getFeaturedEvents(),
     admin
       ? Promise.resolve<DashboardUsage>({
@@ -39,6 +39,8 @@ export default async function HomePage() {
       initialUsage={usage}
       events={events}
       eventsError={error}
+      eventsStale={source === "cache"}
+      eventsCachedAt={cachedAt}
     />
   );
 }
