@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { ComboTicket, type TicketLeg } from "@/components/combo-ticket";
+import { ComboTicket } from "@/components/combo-ticket";
+import { extractCombo } from "@/lib/extract-combo";
 
 interface Usage {
   planId: string;
@@ -19,38 +20,6 @@ const SUGGESTIONS = [
   "Una combinada de 5 partidos, perfil conservador",
   "Combinada de 10x con tenis, máximo 3 patas",
 ];
-
-/** Best-effort extraction of a build_combo result into ticket props. */
-function extractCombo(part: unknown): { legs: TicketLeg[]; multiplier: number; avgEdge?: number } | null {
-  try {
-    const p = part as { output?: unknown; result?: unknown };
-    let data: unknown = p.output ?? p.result;
-    if (data && typeof data === "object" && "content" in data) {
-      const content = (data as { content?: Array<{ text?: string }> }).content;
-      const text = content?.[0]?.text;
-      if (text) data = JSON.parse(text);
-    }
-    if (typeof data === "string") data = JSON.parse(data);
-    const d = data as {
-      legs?: Array<{ selectionLabel?: string; bookmaker?: string; priceDecimal?: number; edgePct?: number }>;
-      combinedOddsDecimal?: number;
-      averageEdgePct?: number;
-    };
-    if (!d?.legs || !Array.isArray(d.legs) || d.legs.length === 0) return null;
-    return {
-      legs: d.legs.map((l) => ({
-        selection: l.selectionLabel ?? "Selección",
-        detail: l.bookmaker,
-        price: Number(l.priceDecimal ?? 0),
-        edgePct: typeof l.edgePct === "number" ? l.edgePct : undefined,
-      })),
-      multiplier: Number(d.combinedOddsDecimal ?? 0),
-      avgEdge: typeof d.averageEdgePct === "number" ? d.averageEdgePct : undefined,
-    };
-  } catch {
-    return null;
-  }
-}
 
 export default function AgentPage() {
   const [input, setInput] = useState("");
