@@ -12,11 +12,12 @@ export type ListSportsInput = z.infer<typeof listSportsInput>;
 
 // Product scope for now: only these sports, shown with Spanish names. Keyed by
 // OddsPapi's sportId (see GET /v4/sports for the full catalog).
+// Order here is the display order: most popular sport first.
 const SPANISH_SPORT_NAMES: Record<string, string> = {
   "10": "Fútbol",
-  "26": "Rugby",
   "11": "Básquet",
   "12": "Tenis",
+  "26": "Rugby",
 };
 
 function localizeSports(sports: Sport[]): Sport[] {
