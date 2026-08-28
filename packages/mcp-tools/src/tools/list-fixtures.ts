@@ -2,6 +2,7 @@ import { getDb, oddsCache } from "@bet/db";
 import { getOddsPapiClient, type Fixture } from "@bet/oddspapi-client";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { toUserFacingError } from "../user-facing-error";
 
 export const listFixturesInput = z.object({
   sportId: z.string().optional(),
@@ -23,7 +24,7 @@ export async function listFixtures(input: ListFixturesInput) {
     if (cached.fixtures.length > 0) {
       return { ...cached, source: "cache" as const };
     }
-    throw liveError;
+    throw toUserFacingError(liveError);
   }
 }
 

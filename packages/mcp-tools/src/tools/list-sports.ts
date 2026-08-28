@@ -2,6 +2,7 @@ import { getDb, sportsCache } from "@bet/db";
 import { getOddsPapiClient, type Sport } from "@bet/oddspapi-client";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
+import { toUserFacingError } from "../user-facing-error";
 
 export const listSportsInput = z.object({
   activeOnly: z.boolean().optional(),
@@ -39,7 +40,7 @@ export async function listSports(_input: ListSportsInput) {
     if (cached.sports.length > 0) {
       return { ...cached, sports: localizeSports(cached.sports), source: "cache" as const };
     }
-    throw liveError;
+    throw toUserFacingError(liveError);
   }
 }
 

@@ -1,5 +1,6 @@
 import { getOddsPapiClient } from "@bet/oddspapi-client";
 import { z } from "zod";
+import { toUserFacingError } from "../user-facing-error";
 
 export const getOddsByTournamentInput = z.object({
   tournamentIds: z.array(z.string()).min(1),
@@ -13,6 +14,10 @@ export async function getOddsByTournament(input: GetOddsByTournamentInput) {
   // OddsPapi requires exactly one bookmaker; default to a broad-coverage reference book
   // so this tool doesn't 400 when the caller omits it.
   const bookmaker = input.bookmaker ?? "pinnacle";
-  const fixtures = await getOddsPapiClient().getOddsByTournaments({ ...input, bookmaker });
-  return { fixtures };
+  try {
+    const fixtures = await getOddsPapiClient().getOddsByTournaments({ ...input, bookmaker });
+    return { fixtures };
+  } catch (liveError) {
+    throw toUserFacingError(liveError);
+  }
 }

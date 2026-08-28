@@ -1,6 +1,7 @@
 import { getOddsPapiClient } from "@bet/oddspapi-client";
 import { extractCandidateLegs } from "@bet/combo-engine";
 import { z } from "zod";
+import { toUserFacingError } from "../user-facing-error";
 
 export const getBestPriceInput = z.object({
   fixtureId: z.string(),
@@ -11,7 +12,11 @@ export const getBestPriceInput = z.object({
 export type GetBestPriceInput = z.infer<typeof getBestPriceInput>;
 
 export async function getBestPrice(input: GetBestPriceInput) {
-  const fixture = await getOddsPapiClient().getOdds(input.fixtureId);
+  const fixture = await getOddsPapiClient()
+    .getOdds(input.fixtureId)
+    .catch((liveError) => {
+      throw toUserFacingError(liveError);
+    });
   const legs = extractCandidateLegs([fixture]).filter(
     (leg) => leg.marketId === input.marketId && leg.outcomeId === input.outcomeId,
   );

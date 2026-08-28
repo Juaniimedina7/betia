@@ -7,12 +7,10 @@ export const dynamic = "force-dynamic";
 export default async function SportOddsPage({ params }: PageProps<"/odds/[sportId]">) {
   const { sportId } = await params;
   let fixtures: Awaited<ReturnType<typeof listFixtures>>["fixtures"] = [];
-  let source: Awaited<ReturnType<typeof listFixtures>>["source"] | null = null;
-  let cachedAt: string | undefined;
   let error: string | null = null;
 
   try {
-    ({ fixtures, source, cachedAt } = await listFixtures({ sportId }));
+    ({ fixtures } = await listFixtures({ sportId }));
   } catch (e) {
     error = e instanceof Error ? e.message : "No se pudieron cargar los partidos";
   }
@@ -36,12 +34,6 @@ export default async function SportOddsPage({ params }: PageProps<"/odds/[sportI
       </Reveal>
 
       {error && <p className="mt-6 text-[var(--color-danger)]">{error}</p>}
-      {!error && source === "cache" && (
-        <p className="mt-6 rounded-2xl border border-[var(--line-strong)] bg-[rgba(255,255,255,0.03)] p-4 text-sm text-[var(--color-ink-muted)]">
-          Mostrando los últimos partidos guardados{cachedAt ? ` (${new Date(cachedAt).toLocaleString("es-AR")})` : ""}{" "}
-          — no pudimos conectar con OddsPapi ahora mismo.
-        </p>
-      )}
       {!error && fixtures.length === 0 && (
         <p className="mt-6 text-[var(--color-ink-muted)]">No hay partidos próximos para este deporte.</p>
       )}

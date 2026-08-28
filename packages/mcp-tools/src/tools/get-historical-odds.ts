@@ -1,5 +1,6 @@
 import { getOddsPapiClient } from "@bet/oddspapi-client";
 import { z } from "zod";
+import { toUserFacingError } from "../user-facing-error";
 
 export const getHistoricalOddsInput = z.object({
   fixtureId: z.string(),
@@ -11,6 +12,10 @@ export const getHistoricalOddsInput = z.object({
 export type GetHistoricalOddsInput = z.infer<typeof getHistoricalOddsInput>;
 
 export async function getHistoricalOdds(input: GetHistoricalOddsInput) {
-  const points = await getOddsPapiClient().getHistoricalOdds(input);
-  return { points };
+  try {
+    const points = await getOddsPapiClient().getHistoricalOdds(input);
+    return { points };
+  } catch (liveError) {
+    throw toUserFacingError(liveError);
+  }
 }

@@ -1,6 +1,8 @@
 import { getOddsPapiClient } from "@bet/oddspapi-client";
 import { buildCombo as runComboSearch, extractCandidateLegs } from "@bet/combo-engine";
 import { z } from "zod";
+import { listTournaments } from "./list-tournaments";
+import { toUserFacingError } from "../user-facing-error";
 
 const MAX_TOURNAMENTS = 20;
 
@@ -24,10 +26,11 @@ async function resolveTournamentIds(input: BuildComboInput): Promise<string[]> {
   }
 
   if (input.sports && input.sports.length > 0) {
-    const client = getOddsPapiClient();
-    const tournamentLists = await Promise.all(input.sports.map((sportId) => client.listTournaments(sportId)));
+    const tournamentLists = await Promise.all(
+      input.sports.map((sportId) => listTournaments({ sportId })),
+    );
     return tournamentLists
-      .flat()
+      .flatMap(({ tournaments }) => tournaments)
       .map((t) => t.tournamentId)
       .slice(0, MAX_TOURNAMENTS);
   }
@@ -52,7 +55,11 @@ export async function buildComboTool(input: BuildComboInput) {
 
   // OddsPapi requires exactly one bookmaker per call; pinnacle is used as the reference
   // price for combo math (see get-odds-by-tournament.ts for the same default).
-  const fixtures = await getOddsPapiClient().getOddsByTournaments({ tournamentIds, bookmaker: "pinnacle" });
+  const fixtures = await getOddsPapiClient()
+    .getOddsByTournaments({ tournamentIds, bookmaker: "pinnacle" })
+    .catch((liveError) => {
+      throw toUserFacingError(liveError);
+    });
   const candidates = extractCandidateLegs(fixtures);
 
   return runComboSearch(candidates, {

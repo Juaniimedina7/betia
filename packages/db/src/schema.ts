@@ -131,6 +131,18 @@ export const sportsCache = pgTable("sports_cache", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Best-effort backup of the last known /v4/tournaments response per sport, used when OddsPapi is unreachable. */
+export const tournamentsCache = pgTable(
+  "tournaments_cache",
+  {
+    tournamentId: text("tournament_id").primaryKey(),
+    sportId: text("sport_id").notNull(),
+    name: text("name").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("tournaments_cache_sport_id_idx").on(table.sportId)],
+);
+
 /**
  * Last known fixture metadata + odds per fixture, upserted whenever a live OddsPapi
  * call succeeds. Serves as a durable backup (unlike the 120s-TTL Redis cache) so

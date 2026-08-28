@@ -3,6 +3,7 @@ import { getOddsPapiClient, RedisOddsCache, type BookmakerOdds } from "@bet/odds
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { marketLabel, outcomeLabel } from "../market-labels";
+import { toUserFacingError } from "../user-facing-error";
 
 export const getOddsInput = z.object({
   fixtureId: z.string(),
@@ -83,7 +84,7 @@ export async function getOdds(input: GetOddsInput) {
         marketCatalog: {} as Record<string, MarketInfo>,
       };
     }
-    throw liveError;
+    throw toUserFacingError(liveError);
   }
 }
 
