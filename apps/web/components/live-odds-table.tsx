@@ -37,6 +37,7 @@ export function LiveOddsTable({
 }) {
   const [odds, setOdds] = useState<BookmakerOdds>(initialOdds);
   const [connected, setConnected] = useState(false);
+  const [selectedMarketId, setSelectedMarketId] = useState<string | "all">("all");
 
   useEffect(() => {
     const source = new EventSource(`/api/sse/odds?fixtureId=${encodeURIComponent(fixtureId)}`);
@@ -90,6 +91,7 @@ export function LiveOddsTable({
     return { groups, bestByOutcome, totalRows: rows.length };
   }, [odds, marketCatalog]);
 
+  const visibleGroups = selectedMarketId === "all" ? groups : groups.filter((g) => g.marketId === selectedMarketId);
   const bookmakerCount = Object.keys(odds).length;
 
   const outcomeLabel = (marketId: string, outcomeId: string, playerIdx: string) => {
@@ -114,8 +116,39 @@ export function LiveOddsTable({
           Todavía no hay cuotas cacheadas para este partido.
         </p>
       ) : (
-        <div className="divide-y divide-[var(--line)]">
-          {groups.map((group) => (
+        <>
+          <div className="flex flex-wrap gap-2 border-b border-[var(--line)] px-5 py-3">
+            <button
+              type="button"
+              onClick={() => setSelectedMarketId("all")}
+              className="chip"
+              style={
+                selectedMarketId === "all"
+                  ? { borderColor: "var(--color-edge)", color: "var(--color-edge)" }
+                  : undefined
+              }
+            >
+              Todos
+            </button>
+            {groups.map((group) => (
+              <button
+                key={group.marketId}
+                type="button"
+                onClick={() => setSelectedMarketId(group.marketId)}
+                className="chip"
+                style={
+                  selectedMarketId === group.marketId
+                    ? { borderColor: "var(--color-edge)", color: "var(--color-edge)" }
+                    : undefined
+                }
+              >
+                {group.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="divide-y divide-[var(--line)]">
+          {visibleGroups.map((group) => (
             <div key={group.marketId} className="overflow-x-auto">
               <p className="px-5 pt-4 pb-2 text-sm font-semibold">{group.label}</p>
               <table className="w-full min-w-[480px] text-sm">
@@ -156,7 +189,8 @@ export function LiveOddsTable({
               </table>
             </div>
           ))}
-        </div>
+          </div>
+        </>
       )}
 
       <p className="border-t border-[var(--line)] px-5 py-2.5 text-xs text-[var(--color-ink-muted)]">
