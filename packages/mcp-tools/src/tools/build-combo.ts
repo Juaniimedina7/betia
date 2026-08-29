@@ -1,4 +1,4 @@
-import { getOddsPapiClient } from "@bet/oddspapi-client";
+import { getOddsPapiClient, type Fixture } from "@bet/oddspapi-client";
 import { buildCombo as runComboSearch, extractCandidateLegs } from "@bet/combo-engine";
 import { z } from "zod";
 import { listTournaments } from "./list-tournaments";
@@ -53,13 +53,48 @@ export async function buildComboTool(input: BuildComboInput) {
     };
   }
 
-  // OddsPapi requires exactly one bookmaker per call; pinnacle is used as the reference
-  // price for combo math (see get-odds-by-tournament.ts for the same default).
-  const fixtures = await getOddsPapiClient()
-    .getOddsByTournaments({ tournamentIds, bookmaker: "pinnacle" })
-    .catch((liveError) => {
-      throw toUserFacingError(liveError);
-    });
+  // OddsPapi requires exactly one bookmaker per call. To find edges across the market,
+  // we fetch odds from several major bookmakers and merge them into a unified view.
+  const BOOKMAKERS = ["pinnacle", "bet365", "1xbet", "draftkings", "betway", "bovada", "betfair"];
+  
+  const client = getOddsPapiClient();
+  const allResponses = await Promise.allSettled(
+    BOOKMAKERS.map((bookmaker) => client.getOddsByTournaments({ tournamentIds, bookmaker }))
+  );
+  
+  const mergedFixtures = new Map<string, Fixture>();
+  
+  for (const res of allResponses) {
+    if (res.status === "rejected") {
+      continue; // Ignore single-bookmaker failures
+    }
+    for (const fixture of res.value) {
+      const existing = mergedFixtures.get(fixture.fixtureId);
+      if (existing) {
+        if (fixture.bookmakerOdds) {
+          existing.bookmakerOdds = {
+            ...(existing.bookmakerOdds || {}),
+            ...fixture.bookmakerOdds
+          };
+        }
+      } else {
+        // Deep clone so we don't mutate the raw response object directly when merging
+        mergedFixtures.set(fixture.fixtureId, { 
+          ...fixture, 
+          bookmakerOdds: { ...(fixture.bookmakerOdds || {}) } 
+        });
+      }
+    }
+  }
+
+  if (mergedFixtures.size === 0) {
+    const firstError = allResponses.find((r) => r.status === "rejected");
+    if (firstError && firstError.status === "rejected") {
+      throw toUserFacingError(firstError.reason);
+    }
+  }
+
+  const fixtures = Array.from(mergedFixtures.values());
   const candidates = extractCandidateLegs(fixtures);
 
   return runComboSearch(candidates, {
