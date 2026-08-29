@@ -8,21 +8,6 @@ interface MarketInfo {
   outcomes: Record<string, string>;
 }
 
-interface Row {
-  key: string;
-  bookmaker: string;
-  marketId: string;
-  outcomeId: string;
-  playerIdx: string;
-  price: number | null;
-}
-
-interface MarketGroup {
-  marketId: string;
-  label: string;
-  rows: Row[];
-}
-
 // Each supported sport's main "who wins" market always floats to the top of the board.
 const PRIORITY_MARKET_IDS = ["101", "111", "121", "261"];
 
@@ -37,7 +22,7 @@ export function LiveOddsTable({
 }) {
   const [odds, setOdds] = useState<BookmakerOdds>(initialOdds);
   const [connected, setConnected] = useState(false);
-  const [marketQuery, setMarketQuery] = useState("");
+  const [activeMarketId, setActiveMarketId] = useState<string | null>(null);
 
   useEffect(() => {
     const source = new EventSource(`/api/sse/odds?fixtureId=${encodeURIComponent(fixtureId)}`);
@@ -50,54 +35,89 @@ export function LiveOddsTable({
     return () => source.close();
   }, [fixtureId]);
 
-  const { groups, bestByOutcome, totalRows } = useMemo(() => {
-    const rows: Row[] = [];
-    const bestByOutcome = new Map<string, number>();
-    for (const bookmaker of Object.keys(odds)) {
-      for (const [marketId, market] of Object.entries(odds[bookmaker]?.markets ?? {})) {
-        for (const [outcomeId, outcome] of Object.entries(market.outcomes)) {
-          for (const [playerIdx, player] of Object.entries(outcome.players)) {
-            const price = player.active === false ? null : player.price;
-            const outKey = `${marketId}-${outcomeId}-${playerIdx}`;
-            if (price !== null) {
-              bestByOutcome.set(outKey, Math.max(bestByOutcome.get(outKey) ?? 0, price));
-            }
-            rows.push({ key: `${bookmaker}-${outKey}`, bookmaker, marketId, outcomeId, playerIdx, price });
+  const { markets, bookmakers, bestPrices, activeMarketData, totalRows } = useMemo(() => {
+    const bookmakerSet = new Set<string>();
+    const marketMap = new Map<string, { label: string; outcomes: Set<string> }>();
+    
+    // First pass: collect all bookmakers, markets, and outcomes
+    for (const [bookmaker, book] of Object.entries(odds)) {
+      bookmakerSet.add(bookmaker);
+      for (const [marketId, market] of Object.entries(book?.markets ?? {})) {
+        if (!marketMap.has(marketId)) {
+          marketMap.set(marketId, {
+            label: marketCatalog[marketId]?.label ?? `Mercado ${marketId}`,
+            outcomes: new Set(),
+          });
+        }
+        const m = marketMap.get(marketId)!;
+        for (const outcomeId of Object.keys(market.outcomes)) {
+          for (const playerIdx of Object.keys(market.outcomes[outcomeId]?.players ?? {})) {
+            m.outcomes.add(`${outcomeId}|${playerIdx}`);
           }
         }
       }
     }
 
-    const byMarket = new Map<string, Row[]>();
-    for (const row of rows) {
-      const list = byMarket.get(row.marketId);
-      if (list) list.push(row);
-      else byMarket.set(row.marketId, [row]);
-    }
+    const bookmakers = Array.from(bookmakerSet).sort((a, b) => {
+      // Put pinnacle first if it exists
+      if (a === "pinnacle") return -1;
+      if (b === "pinnacle") return 1;
+      return a.localeCompare(b);
+    });
 
-    const groups: MarketGroup[] = [...byMarket.entries()]
-      .map(([marketId, marketRows]) => ({
-        marketId,
-        label: marketCatalog[marketId]?.label ?? `Mercado ${marketId}`,
-        rows: marketRows,
-      }))
+    const markets = Array.from(marketMap.entries())
+      .map(([id, data]) => ({ id, label: data.label, outcomes: Array.from(data.outcomes) }))
       .sort((a, b) => {
-        const ai = PRIORITY_MARKET_IDS.indexOf(a.marketId);
-        const bi = PRIORITY_MARKET_IDS.indexOf(b.marketId);
+        const ai = PRIORITY_MARKET_IDS.indexOf(a.id);
+        const bi = PRIORITY_MARKET_IDS.indexOf(b.id);
         if (ai !== -1 || bi !== -1) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
         return a.label.localeCompare(b.label);
       });
 
-    return { groups, bestByOutcome, totalRows: rows.length };
-  }, [odds, marketCatalog]);
+    // Calculate best prices for the active market
+    const currentMarketId = activeMarketId ?? markets[0]?.id;
+    const bestPrices = new Map<string, number>();
+    
+    let activeMarketData = null;
+    if (currentMarketId) {
+      activeMarketData = markets.find(m => m.id === currentMarketId);
+      if (activeMarketData) {
+        for (const outcomeStr of activeMarketData.outcomes) {
+          const [outcomeId, playerIdx] = outcomeStr.split("|");
+          let best = 0;
+          for (const bm of bookmakers) {
+            const price = odds[bm]?.markets[currentMarketId]?.outcomes[outcomeId]?.players[playerIdx]?.price;
+            const active = odds[bm]?.markets[currentMarketId]?.outcomes[outcomeId]?.players[playerIdx]?.active;
+            if (price && active !== false && price > best) {
+              best = price;
+            }
+          }
+          if (best > 0) bestPrices.set(outcomeStr, best);
+        }
+      }
+    }
 
-  const normalizedQuery = marketQuery.trim().toLowerCase();
-  const visibleGroups = normalizedQuery
-    ? groups.filter((g) => g.label.toLowerCase().includes(normalizedQuery))
-    : groups;
-  const bookmakerCount = Object.keys(odds).length;
+    let totalRowsCount = 0;
+    for (const bm of Object.keys(odds)) {
+      for (const mId of Object.keys(odds[bm]?.markets ?? {})) {
+        for (const oId of Object.keys(odds[bm]?.markets[mId]?.outcomes ?? {})) {
+          totalRowsCount += Object.keys(odds[bm]?.markets[mId]?.outcomes[oId]?.players ?? {}).length;
+        }
+      }
+    }
 
-  const outcomeLabel = (marketId: string, outcomeId: string, playerIdx: string) => {
+    return { markets, bookmakers, bestPrices, activeMarketData, totalRows: totalRowsCount };
+  }, [odds, marketCatalog, activeMarketId]);
+
+  // Sync active market if it's null
+  useEffect(() => {
+    if (!activeMarketId && markets.length > 0) {
+      setActiveMarketId(markets[0].id);
+    }
+  }, [markets, activeMarketId]);
+
+  const outcomeLabel = (marketId: string, outcomeStr: string) => {
+    const [outcomeId, playerIdx] = outcomeStr.split("|");
     const label = marketCatalog[marketId]?.outcomes[outcomeId] ?? outcomeId;
     return playerIdx === "0" ? label : `${label} (${playerIdx})`;
   };
@@ -111,7 +131,7 @@ export function LiveOddsTable({
             {connected ? "En vivo" : "Conectando…"}
           </span>
         </span>
-        <span className="chip">{bookmakerCount} casas</span>
+        <span className="chip">{bookmakers.length} casas</span>
       </div>
 
       {totalRows === 0 ? (
@@ -120,71 +140,92 @@ export function LiveOddsTable({
         </p>
       ) : (
         <>
-          <div className="border-b border-[var(--line)] px-5 py-3">
-            <input
-              type="text"
-              value={marketQuery}
-              onChange={(e) => setMarketQuery(e.target.value)}
-              placeholder="Buscar mercado (ej. ganador, ambos anotan, córners)…"
-              className="w-full rounded-lg border border-[var(--line-strong)] bg-transparent px-3 py-1.5 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)] focus:border-[var(--color-edge)] focus:outline-none"
-            />
+          <div className="border-b border-[var(--line)] bg-[rgba(255,255,255,0.01)] px-5 py-4">
+            <label htmlFor="market-select" className="mb-2 block text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-faint)]">
+              Mercado
+            </label>
+            <div className="relative">
+              <select
+                id="market-select"
+                value={activeMarketId ?? ""}
+                onChange={(e) => setActiveMarketId(e.target.value)}
+                className="w-full appearance-none rounded-xl border border-[var(--line-strong)] bg-[rgba(255,255,255,0.02)] px-4 py-2.5 pr-10 text-sm font-medium text-[var(--color-ink)] transition-colors hover:border-[var(--color-ink-muted)] focus:border-[var(--color-edge)] focus:outline-none"
+              >
+                {markets.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[var(--color-ink-muted)]">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+            </div>
           </div>
 
-          {visibleGroups.length === 0 ? (
+          {!activeMarketData ? (
             <p className="px-5 py-10 text-center text-sm text-[var(--color-ink-muted)]">
-              Ningún mercado coincide con &quot;{marketQuery}&quot;.
+              No se encontraron datos para este mercado.
             </p>
           ) : (
-            <div className="divide-y divide-[var(--line)]">
-              {visibleGroups.map((group) => (
-                <div key={group.marketId} className="overflow-x-auto">
-                  <p className="px-5 pt-4 pb-2 text-sm font-semibold">{group.label}</p>
-                  <table className="w-full min-w-[480px] text-sm">
-                    <thead>
-                      <tr className="text-left text-xs uppercase tracking-wider text-[var(--color-ink-faint)]">
-                        <th className="px-5 py-2 font-medium">Casa</th>
-                        <th className="px-3 py-2 font-medium">Selección</th>
-                        <th className="px-5 py-2 text-right font-medium">Cuota</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.rows.map((row) => {
-                        const outKey = `${row.marketId}-${row.outcomeId}-${row.playerIdx}`;
-                        const isBest = row.price !== null && bestByOutcome.get(outKey) === row.price;
-                        return (
-                          <tr key={row.key} className="border-t border-[var(--line)] transition-colors hover:bg-white/[0.02]">
-                            <td className="px-5 py-2 font-medium">{row.bookmaker}</td>
-                            <td className="px-3 py-2 text-[var(--color-ink-muted)]">
-                              {outcomeLabel(row.marketId, row.outcomeId, row.playerIdx)}
-                            </td>
-                            <td className="px-5 py-2 text-right">
-                              {row.price === null ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--line)] bg-[rgba(255,255,255,0.02)] text-left text-xs uppercase tracking-wider text-[var(--color-ink-faint)]">
+                    <th className="sticky left-0 z-10 bg-[var(--color-bg)] px-5 py-3 font-semibold shadow-[1px_0_0_0_var(--line)]">
+                      Selección
+                    </th>
+                    {bookmakers.map((bm) => (
+                      <th key={bm} className="px-5 py-3 font-semibold text-center whitespace-nowrap capitalize">
+                        {bm}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--line)]">
+                  {activeMarketData.outcomes.map((outcomeStr) => {
+                    const [outcomeId, playerIdx] = outcomeStr.split("|");
+                    return (
+                      <tr key={outcomeStr} className="transition-colors hover:bg-white/[0.02]">
+                        <td className="sticky left-0 z-10 bg-[var(--color-bg)] px-5 py-3 font-medium text-[var(--color-ink)] shadow-[1px_0_0_0_var(--line)] whitespace-nowrap">
+                          {outcomeLabel(activeMarketData!.id, outcomeStr)}
+                        </td>
+                        {bookmakers.map((bm) => {
+                          const player = odds[bm]?.markets[activeMarketData!.id]?.outcomes[outcomeId]?.players[playerIdx];
+                          const price = player?.active === false ? null : player?.price;
+                          const isBest = price !== undefined && price !== null && bestPrices.get(outcomeStr) === price;
+
+                          return (
+                            <td key={bm} className="px-5 py-3 text-center">
+                              {price === undefined || price === null ? (
                                 <span className="text-[var(--color-ink-faint)]">—</span>
                               ) : (
                                 <span
-                                  className="tnum inline-flex items-center gap-1.5 font-semibold"
+                                  className="tnum inline-flex items-center gap-1 font-semibold"
                                   style={{ color: isBest ? "var(--color-edge)" : "var(--color-ink)" }}
                                 >
                                   {isBest && <span aria-hidden className="text-[10px]">▲</span>}
-                                  {row.price.toFixed(2)}
+                                  {price.toFixed(2)}
                                 </span>
                               )}
                             </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </>
       )}
 
-      <p className="border-t border-[var(--line)] px-5 py-2.5 text-xs text-[var(--color-ink-muted)]">
-        <span style={{ color: "var(--color-edge)" }}>▲</span> mejor precio disponible por selección. La cuota es lo
-        que te paga esa casa por cada unidad apostada si acertás esa selección.
+      <p className="border-t border-[var(--line)] px-5 py-3 text-xs text-[var(--color-ink-muted)] leading-relaxed bg-[rgba(255,255,255,0.01)]">
+        <span style={{ color: "var(--color-edge)" }}>▲</span> mejor precio disponible por selección.<br />
+        Las cuotas mostradas representan el multiplicador de tu apuesta. Una cuota vacía significa que la casa no ofrece ese mercado actualmente.
       </p>
     </div>
   );
