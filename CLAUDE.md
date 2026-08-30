@@ -42,6 +42,25 @@ or nginx sites when working here.
   left in place — nothing in the code reads them, and Neon Auth (if ever wired up) is a
   separate concern from the Postgres migration. Safe to clean up later if confirmed unused.
 
+## OddsPapi quota (2026-08-30)
+
+OddsPapi bills **250 requests/month total** (not an hourly/daily window — confirmed
+via `oddspapi.io/es/docs/requests-and-quota`). The 429 seen this session
+("Request limit exceeded... limit of 250 requests") was the whole month's budget,
+not a burst limit — plan the ingest cron's cost around a monthly total, not a rate.
+
+`.github/workflows/poll-odds.yml` runs `/api/ingest/poll` twice a day (`0 9,21 * * *`),
+~4 requests/run (20 hardcoded soccer `tournamentIds` in
+`apps/web/app/api/ingest/poll/route.ts`, batched 5 per `/v4/odds-by-tournaments` call)
+→ ~240 requests/month, leaving a little headroom for manual `workflow_dispatch` runs.
+The route no longer calls `listSports()` on every run (dropped — it's static reference
+data already refreshed by live UI traffic; wasn't worth ~60 requests/month).
+
+If you need to add sports beyond soccer (basketball/tennis/boxing were requested but
+blocked this session by the exhausted quota — couldn't verify their `sportId`s live)
+or change cadence/tournament count, redo this budget math first:
+`requests/month = runs/month × ceil(tournamentIds / 5)`, and keep it under ~250.
+
 ## Next steps / open items
 
 1. **Vercel `DATABASE_URL` not yet updated.** The Vercel project this repo was linked to
