@@ -14,11 +14,12 @@
     "lint": "echo skip"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.1.0",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
+    "@types/pg": "^8.11.10",
     "drizzle-kit": "^0.31.10",
     "typescript": "^5.9.3"
   }
