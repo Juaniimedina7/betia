@@ -1,0 +1,170 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+interface MatchesListProps {
+  title?: string;
+  team?: string;
+  tournamentId?: string;
+  limit?: number;
+}
+
+export function MatchesList({ 
+  title = "Próximos Partidos", 
+  team, 
+  tournamentId,
+  limit = 10 
+}: MatchesListProps) {
+  const [matches, setMatches] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchOdds() {
+      try {
+        const url = new URL("/api/odds", window.location.origin);
+        if (team) url.searchParams.set("team", team);
+        if (tournamentId) url.searchParams.set("tournamentId", tournamentId);
+        url.searchParams.set("limit", limit.toString());
+
+        const response = await fetch(url.toString());
+        const json = await response.json();
+        if (json.success) {
+          setMatches(json.data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch odds:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchOdds();
+  }, [team, tournamentId, limit]);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center p-8">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#B8FF35]"></div>
+      </div>
+    );
+  }
+
+  if (matches.length === 0) {
+    return (
+      <div className="text-center p-8 text-gray-500 font-medium">
+        No se encontraron partidos.
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto p-4 space-y-6">
+      <h2 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-[#B8FF35] to-lime-200 mb-8 tracking-tight text-center">
+        {title}
+      </h2>
+
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {matches.map((match) => {
+          const homeTeam = match.participant1Name || "Local";
+          const awayTeam = match.participant2Name || "Visitante";
+          
+          const date = new Date(match.startTime);
+          const formattedDate = date.toLocaleDateString("es-AR", {
+            weekday: "short",
+            day: "numeric",
+            month: "short"
+          });
+          const formattedTime = date.toLocaleTimeString("es-AR", {
+            hour: "2-digit",
+            minute: "2-digit"
+          });
+
+          let odds1 = { label: "1", value: "-" };
+          let oddsX = { label: "X", value: "-" };
+          let odds2 = { label: "2", value: "-" };
+
+          if (match.bookmakerOdds) {
+             const bookmakers = Object.keys(match.bookmakerOdds);
+             if (bookmakers.length > 0) {
+               const firstBookmaker = match.bookmakerOdds[bookmakers[0]];
+               // El mercado '1' o '1x2' usualmente guarda el ganador del partido. Si no, usamos el primero que venga.
+               const market = firstBookmaker.markets?.["1"] || Object.values(firstBookmaker.markets || {})[0]; 
+               if (market && market.outcomes) {
+                 // Intentar mapear 1, 2, 3 tradicionales de fútbol
+                 if (market.outcomes["1"] || market.outcomes["2"] || market.outcomes["3"]) {
+                   odds1.value = market.outcomes["1"]?.players?.["0"]?.price?.toFixed(2) || "-";
+                   oddsX.value = market.outcomes["2"]?.players?.["0"]?.price?.toFixed(2) || "-";
+                   odds2.value = market.outcomes["3"]?.players?.["0"]?.price?.toFixed(2) || "-";
+                 } else {
+                   // Si son otros IDs (ej. tenis, basket), tomamos los primeros 2 o 3
+                   const outcomes = Object.values(market.outcomes);
+                   if (outcomes[0]) odds1 = { label: "L", value: outcomes[0].players?.["0"]?.price?.toFixed(2) || "-" };
+                   if (outcomes[1]) odds2 = { label: "V", value: outcomes[1].players?.["0"]?.price?.toFixed(2) || "-" };
+                   if (outcomes[2]) oddsX = { label: "X", value: outcomes[2].players?.["0"]?.price?.toFixed(2) || "-" };
+                 }
+               }
+             }
+          }
+
+          return (
+            <div
+              key={match.fixtureId}
+              className="relative group bg-[#111] border border-gray-800 rounded-2xl overflow-hidden hover:border-[#B8FF35]/50 transition-all duration-300 hover:shadow-[0_0_30px_rgba(184,255,53,0.15)]"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#B8FF35] to-lime-500 transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-500 ease-out"></div>
+              
+              <div className="p-6">
+                <div className="flex justify-between items-center text-xs text-gray-400 font-semibold mb-6 uppercase tracking-wider">
+                  <span>{formattedDate}</span>
+                  <span className="bg-[#B8FF35]/10 text-[#B8FF35] py-1 px-3 rounded-full">{formattedTime}</span>
+                </div>
+
+                <div className="flex items-center justify-between mb-8">
+                  {/* Home Team */}
+                  <div className="flex flex-col items-center flex-1 order-1">
+                    <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300">
+                      <span className="text-sm font-bold text-gray-300 text-center uppercase tracking-wider leading-none px-1 line-clamp-2">
+                        {homeTeam.substring(0, 3)}
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-medium text-gray-200 text-center line-clamp-2 px-1">{homeTeam}</span>
+                  </div>
+
+                  <div className="flex flex-col items-center flex-1 order-2 px-2">
+                    <span className="text-[10px] text-gray-600 font-bold mb-1 uppercase tracking-widest">vs</span>
+                  </div>
+
+                  {/* Away Team */}
+                  <div className="flex flex-col items-center flex-1 order-3">
+                    <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300">
+                      <span className="text-sm font-bold text-gray-300 text-center uppercase tracking-wider leading-none px-1 line-clamp-2">
+                        {awayTeam.substring(0, 3)}
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-medium text-gray-400 text-center line-clamp-2 px-1">{awayTeam}</span>
+                  </div>
+                </div>
+
+                <div className="pt-5 border-t border-gray-800">
+                  <div className="flex justify-between items-center gap-2">
+                    <button className="flex-1 bg-gray-900 hover:bg-gray-800 border border-gray-800 text-white rounded-lg py-2 px-1 transition-colors flex flex-col items-center group/btn">
+                      <span className="text-[9px] text-gray-500 font-bold mb-1 uppercase tracking-wider">{odds1.label}</span>
+                      <span className="text-sm font-semibold group-hover/btn:text-[#B8FF35]">{odds1.value}</span>
+                    </button>
+                    <button className="flex-1 bg-gray-900 hover:bg-gray-800 border border-gray-800 text-white rounded-lg py-2 px-1 transition-colors flex flex-col items-center group/btn">
+                      <span className="text-[9px] text-gray-500 font-bold mb-1 uppercase tracking-wider">{oddsX.label}</span>
+                      <span className="text-sm font-semibold group-hover/btn:text-[#B8FF35]">{oddsX.value}</span>
+                    </button>
+                    <button className="flex-1 bg-gray-900 hover:bg-gray-800 border border-gray-800 text-white rounded-lg py-2 px-1 transition-colors flex flex-col items-center group/btn">
+                      <span className="text-[9px] text-gray-500 font-bold mb-1 uppercase tracking-wider">{odds2.label}</span>
+                      <span className="text-sm font-semibold group-hover/btn:text-[#B8FF35]">{odds2.value}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

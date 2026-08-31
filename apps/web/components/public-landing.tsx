@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Reveal } from "@/components/reveal";
 import { ComboTicket } from "@/components/combo-ticket";
+import { MatchesList } from "@/components/MatchesList";
 
 const HERO_LEGS = [
   { selection: "Boca Juniors gana", detail: "River vs Boca · 1X2", price: 2.15, edgePct: 4.2 },
@@ -94,6 +95,13 @@ export function PublicLanding() {
               note="Ejemplo ilustrativo. Las cuotas reales se actualizan en vivo y el agente arma el ticket por vos."
             />
           </div>
+        </Reveal>
+      </section>
+
+      {/* ---------- OddsPapi Global Matches ---------- */}
+      <section className="py-12 border-t border-white/5 bg-[#0a0a0a]">
+        <Reveal>
+          <MatchesList title="Partidos Destacados Globales" limit={6} />
         </Reveal>
       </section>
 

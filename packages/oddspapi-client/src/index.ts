@@ -207,7 +207,7 @@ export class OddsPapiClient {
     // requested for a whole sport rather than a specific tournament/season.
     const needsDateWindow = !params.tournamentId && !params.from && !params.to;
     const resolvedParams = needsDateWindow
-      ? { ...params, from: isoNow(), to: isoDaysFromNow(3) }
+      ? { ...params, from: isoNow(), to: isoDaysFromNow(1) }
       : params;
     const raw = await this.request<RawFixture[]>("/v4/fixtures", { ...resolvedParams });
     // Browsing UIs only want fixtures a user could actually get odds for — a fixture
