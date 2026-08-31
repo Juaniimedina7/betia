@@ -94,18 +94,21 @@ export async function getFeaturedEvents(): Promise<FeaturedEventsResult> {
     const from = new Date(now - LIVE_WINDOW_MS).toISOString();
     const to = new Date(now + UPCOMING_WINDOW_MS).toISOString();
 
-    const perSport = await Promise.all(
-      sportsResult.sports.map(async (sport) => {
-        try {
-          const result = await listFixtures({ sportId: sport.sportId, from, to });
-          noteSource(result.source, result.cachedAt);
-          return result.fixtures.slice(0, CANDIDATES_PER_SPORT);
-        } catch {
-          // One dead sport shouldn't empty the whole board.
-          return [];
-        }
-      }),
-    );
+    // Wait after listSports before starting listFixtures
+    await new Promise(r => setTimeout(r, 1500));
+
+    const perSport = [];
+    for (const sport of sportsResult.sports) {
+      try {
+        const result = await listFixtures({ sportId: sport.sportId, from, to });
+        noteSource(result.source, result.cachedAt);
+        perSport.push(result.fixtures.slice(0, CANDIDATES_PER_SPORT));
+      } catch {
+        perSport.push([]);
+      }
+      // Free tier rate limit is 1 req/sec, wait a bit
+      await new Promise(r => setTimeout(r, 1500));
+    }
 
     // Round-robin across sports so soccer's volume doesn't crowd everything out.
     const candidates: Fixture[] = [];
@@ -116,22 +119,22 @@ export async function getFeaturedEvents(): Promise<FeaturedEventsResult> {
       }
     }
 
-    const priced = await Promise.all(
-      candidates.slice(0, CANDIDATE_LIMIT).map(async (fixture) => {
-        try {
-          const odds = await getOdds({ fixtureId: fixture.fixtureId });
-          if (odds.source === "db-cache") noteSource(odds.source, odds.cachedAt);
-          return {
-            fixture,
-            matchup: odds.matchup,
-            bookmakerOdds: odds.bookmakerOdds,
-            catalog: odds.marketCatalog,
-          };
-        } catch {
-          return null;
-        }
-      }),
-    );
+    const priced = [];
+    for (const fixture of candidates.slice(0, CANDIDATE_LIMIT)) {
+      try {
+        const odds = await getOdds({ fixtureId: fixture.fixtureId });
+        if (odds.source === "db-cache") noteSource(odds.source, odds.cachedAt);
+        priced.push({
+          fixture,
+          matchup: odds.matchup,
+          bookmakerOdds: odds.bookmakerOdds,
+          catalog: odds.marketCatalog,
+        });
+      } catch {
+        priced.push(null);
+      }
+      await new Promise(r => setTimeout(r, 1500));
+    }
 
     const events: FeaturedEvent[] = [];
     for (const entry of priced) {
