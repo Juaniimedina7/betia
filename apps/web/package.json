@@ -14,6 +14,7 @@
     "@ai-sdk/react": "^4.0.82",
     "@bet/combo-engine": "workspace:*",
     "@bet/db": "workspace:*",
+    "@bet/highlightly-client": "workspace:*",
     "@bet/mcp-tools": "workspace:*",
     "@bet/oddspapi-client": "workspace:*",
     "@clerk/nextjs": "^7.8.2",

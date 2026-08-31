@@ -25,6 +25,9 @@ importers:
       '@bet/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@bet/highlightly-client':
+        specifier: workspace:*
+        version: link:../../packages/highlightly-client
       '@bet/mcp-tools':
         specifier: workspace:*
         version: link:../../packages/mcp-tools
@@ -131,6 +134,15 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  packages/highlightly-client:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.43
+        version: 20.19.43
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/mcp-tools:
     dependencies:
       '@bet/combo-engine':
@@ -142,6 +154,9 @@ importers:
       '@bet/oddspapi-client':
         specifier: workspace:*
         version: link:../oddspapi-client
+      '@bet/stats-engine':
+        specifier: workspace:*
+        version: link:../stats-engine
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@neondatabase/serverless@1.1.0)(@types/pg@8.23.1)(@upstash/redis@1.38.2)(pg@8.23.0)
@@ -161,6 +176,15 @@ importers:
       '@upstash/redis':
         specifier: ^1.38.2
         version: 1.38.2
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.43
+        version: 20.19.43
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/stats-engine:
     devDependencies:
       '@types/node':
         specifier: ^20.19.43

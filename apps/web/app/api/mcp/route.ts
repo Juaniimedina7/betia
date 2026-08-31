@@ -2,14 +2,20 @@ import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import {
   buildComboInput,
   buildComboTool,
+  estimateMatchProbability,
+  estimateMatchProbabilityInput,
   getBestPrice,
   getBestPriceInput,
+  getHeadToHead,
+  getHeadToHeadInput,
   getHistoricalOdds,
   getHistoricalOddsInput,
   getOdds,
   getOddsByTournament,
   getOddsByTournamentInput,
   getOddsInput,
+  getTeamStats,
+  getTeamStatsInput,
   getUserBetSlip,
   getUserBetSlipInput,
   listFixtures,
@@ -99,6 +105,36 @@ const handler = createMcpHandler(
       "get_historical_odds",
       { description: "Get free historical odds for a fixture/market.", inputSchema: getHistoricalOddsInput },
       async (input) => jsonContent(await getHistoricalOdds(input)),
+    );
+
+    server.registerTool(
+      "get_team_stats",
+      {
+        description:
+          "Get a team's current-season stats (goals for/against, wins/draws/losses, home/away splits). This is statistical data, NOT market odds — never confuse it with build_combo's fair price.",
+        inputSchema: getTeamStatsInput,
+      },
+      async (input) => jsonContent(await getTeamStats(input)),
+    );
+
+    server.registerTool(
+      "get_head_to_head",
+      {
+        description:
+          "Get the historical head-to-head record between two teams (wins/draws/losses). Statistical data, NOT market odds.",
+        inputSchema: getHeadToHeadInput,
+      },
+      async (input) => jsonContent(await getHeadToHead(input)),
+    );
+
+    server.registerTool(
+      "estimate_match_probability",
+      {
+        description:
+          "Estimate win/draw/loss probability from historical goals (Poisson model) — this is the STATISTICAL probability, NOT the market-implied probability from build_combo/get_best_price. May return available:false if there isn't enough ingested history yet.",
+        inputSchema: estimateMatchProbabilityInput,
+      },
+      async (input) => jsonContent(await estimateMatchProbability(input)),
     );
 
     server.registerTool(

@@ -26,3 +26,17 @@ jobs:
           if [ "$code" != "200" ]; then
             exit 1
           fi
+
+      # Independent step/route on purpose — a failure here must never mask a
+      # successful odds poll above (or vice versa). See CLAUDE.md's "Highlightly
+      # quota" section for the request budget this route stays under.
+      - name: Poll team stats (Highlightly)
+        run: |
+          code=$(curl -s -o /tmp/response-stats.json -w "%{http_code}" \
+            "https://betia-web-brown.vercel.app/api/ingest/poll-stats" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+          echo "HTTP $code"
+          cat /tmp/response-stats.json
+          if [ "$code" != "200" ]; then
+            exit 1
+          fi

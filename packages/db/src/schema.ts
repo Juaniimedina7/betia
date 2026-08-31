@@ -5,6 +5,7 @@ import {
   jsonb,
   numeric,
   pgTable,
+  primaryKey,
   smallint,
   text,
   timestamp,
@@ -186,6 +187,80 @@ export const marketCatalog = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("market_catalog_sport_id_idx").on(table.sportId)],
+);
+
+/**
+ * Resolves an OddsPapi participant to its external (Highlightly) team id by name,
+ * cached so repeated ingestion runs don't re-match every time. A null externalTeamId
+ * means a resolution attempt was made and failed to find a confident match (retried
+ * on a slower cadence than a fresh/never-tried participant). Column names are
+ * provider-agnostic on purpose — this project already switched stats providers once
+ * (API-Football -> Highlightly, see CLAUDE.md's "Highlightly quota" section) and
+ * naming this after a specific provider would just mean renaming again next time.
+ */
+export const teamIdMap = pgTable("team_id_map", {
+  oddsPapiParticipantId: text("oddspapi_participant_id").primaryKey(),
+  participantName: text("participant_name").notNull(),
+  externalTeamId: text("external_team_id"),
+  matchedTeamName: text("matched_team_name"),
+  matchStrategy: text("match_strategy", { enum: ["exact", "fuzzy", "unresolved"] }).notNull(),
+  matchConfidence: numeric("match_confidence", { precision: 4, scale: 3 }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Per-team season stats (home/away split), raw counts only — the statistical
+ * probability model (packages/stats-engine) derives rates/strength from these on the
+ * fly, nothing is pre-averaged here. Currently sourced from Highlightly's
+ * `/standings` endpoint, one call per league covering every team at once.
+ */
+export const teamSeasonStats = pgTable(
+  "team_season_stats",
+  {
+    externalTeamId: text("external_team_id").notNull(),
+    leagueId: text("league_id").notNull(),
+    season: text("season").notNull(), // e.g. "2026"
+    teamName: text("team_name").notNull(),
+    matchesPlayedHome: integer("matches_played_home").notNull().default(0),
+    matchesPlayedAway: integer("matches_played_away").notNull().default(0),
+    winsHome: integer("wins_home").notNull().default(0),
+    winsAway: integer("wins_away").notNull().default(0),
+    drawsHome: integer("draws_home").notNull().default(0),
+    drawsAway: integer("draws_away").notNull().default(0),
+    lossesHome: integer("losses_home").notNull().default(0),
+    lossesAway: integer("losses_away").notNull().default(0),
+    goalsForHome: integer("goals_for_home").notNull().default(0),
+    goalsForAway: integer("goals_for_away").notNull().default(0),
+    goalsAgainstHome: integer("goals_against_home").notNull().default(0),
+    goalsAgainstAway: integer("goals_against_away").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.externalTeamId, table.leagueId, table.season] }),
+    index("team_season_stats_league_idx").on(table.leagueId, table.season),
+  ],
+);
+
+/**
+ * Head-to-head summary between a pair of external (Highlightly) team ids, normalized
+ * so teamAId < teamBId (lexicographically) — callers must sort the two resolved ids
+ * before reading/writing so a pair is never stored/duplicated in both orderings.
+ */
+export const teamHeadToHead = pgTable(
+  "team_head_to_head",
+  {
+    teamAId: text("team_a_id").notNull(),
+    teamBId: text("team_b_id").notNull(),
+    matchesPlayed: integer("matches_played").notNull().default(0),
+    teamAWins: integer("team_a_wins").notNull().default(0),
+    teamBWins: integer("team_b_wins").notNull().default(0),
+    draws: integer("draws").notNull().default(0),
+    teamAGoalsFor: integer("team_a_goals_for").notNull().default(0),
+    teamBGoalsFor: integer("team_b_goals_for").notNull().default(0),
+    lastMeetingAt: timestamp("last_meeting_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.teamAId, table.teamBId] })],
 );
 
 export const usersRelations = relations(users, ({ many }) => ({
