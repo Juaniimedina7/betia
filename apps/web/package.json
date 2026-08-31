@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.46",
     "@ai-sdk/mcp": "^2.0.37",
     "@ai-sdk/react": "^4.0.82",
     "@bet/combo-engine": "workspace:*",
