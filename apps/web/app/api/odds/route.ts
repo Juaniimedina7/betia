@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getOddsPapiClient, ListFixturesParams } from "@bet/oddspapi-client";
 
+export const revalidate = 60;
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
