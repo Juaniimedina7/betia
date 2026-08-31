@@ -22,12 +22,14 @@ export function AgentChatPanel({
   busy,
   connecting,
   outOfRuns,
+  error,
   onSend,
 }: {
   messages: UIMessage[];
   busy: boolean;
   connecting: boolean;
   outOfRuns: boolean;
+  error?: Error;
   onSend: (text: string) => void;
 }) {
   const [input, setInput] = useState("");
@@ -134,6 +136,12 @@ export function AgentChatPanel({
           <div className="flex shrink-0 items-center gap-2 text-sm text-[var(--color-ink-muted)]">
             <span className="live-dot" style={{ background: "var(--color-edge)" }} />
             Pensando…
+          </div>
+        )}
+
+        {error && (
+          <div className="shrink-0 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+            Algo falló armando la respuesta. Probá de nuevo en un momento.
           </div>
         )}
       </div>

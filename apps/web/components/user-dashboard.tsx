@@ -44,7 +44,7 @@ export function UserDashboard({
   }, []);
 
   // Every answered prompt burns a run, so re-read the quota once the stream ends.
-  const { messages, sendMessage, status } = useChat({
+  const { messages, sendMessage, status, error } = useChat({
     transport: new DefaultChatTransport({ api: "/api/agent/chat" }),
     onFinish: () => {
       refreshUsage();
@@ -128,6 +128,7 @@ export function UserDashboard({
             busy={busy}
             connecting={status === "submitted"}
             outOfRuns={outOfRuns}
+            error={error}
             onSend={send}
           />
         </div>

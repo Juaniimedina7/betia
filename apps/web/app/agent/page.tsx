@@ -23,7 +23,7 @@ const SUGGESTIONS = [
 
 export default function AgentPage() {
   const [input, setInput] = useState("");
-  const { messages, sendMessage, status } = useChat({
+  const { messages, sendMessage, status, error } = useChat({
     transport: new DefaultChatTransport({ api: "/api/agent/chat" }),
   });
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -165,6 +165,12 @@ export default function AgentPage() {
           <div className="flex items-center gap-2 text-sm text-[var(--color-ink-muted)]">
             <span className="live-dot" style={{ background: "var(--color-edge)" }} />
             Pensando…
+          </div>
+        )}
+
+        {error && (
+          <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+            Algo falló armando la respuesta. Probá de nuevo en un momento.
           </div>
         )}
         <div ref={bottomRef} />
