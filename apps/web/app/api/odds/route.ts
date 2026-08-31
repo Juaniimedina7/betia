@@ -16,7 +16,7 @@ export async function GET(request: Request) {
       params.tournamentId = tournamentId;
     }
 
-    let fixtures = [];
+    let fixtures: any[] = [];
     let attempts = 0;
     while (attempts < 3) {
       try {

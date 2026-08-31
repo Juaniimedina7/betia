@@ -96,7 +96,7 @@ export function MatchesList({
                    odds2.value = market.outcomes["3"]?.players?.["0"]?.price?.toFixed(2) || "-";
                  } else {
                    // Si son otros IDs (ej. tenis, basket), tomamos los primeros 2 o 3
-                   const outcomes = Object.values(market.outcomes);
+                   const outcomes = Object.values(market.outcomes) as any[];
                    if (outcomes[0]) odds1 = { label: "L", value: outcomes[0].players?.["0"]?.price?.toFixed(2) || "-" };
                    if (outcomes[1]) odds2 = { label: "V", value: outcomes[1].players?.["0"]?.price?.toFixed(2) || "-" };
                    if (outcomes[2]) oddsX = { label: "X", value: outcomes[2].players?.["0"]?.price?.toFixed(2) || "-" };
