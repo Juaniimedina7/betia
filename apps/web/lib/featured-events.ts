@@ -1,4 +1,4 @@
-import { getOdds, listFixtures, listSports, listTournaments, type MarketInfo } from "@bet/mcp-tools";
+import { estimateMatchProbability, getOdds, listFixtures, listSports, listTournaments, type MarketInfo } from "@bet/mcp-tools";
 import type { BookmakerOdds, Fixture } from "@bet/oddspapi-client";
 
 /** A fixture is treated as in-play from kickoff until this long after it. */
@@ -32,6 +32,18 @@ export interface FeaturedPick {
   best: boolean;
 }
 
+/**
+ * Statistical (Poisson) probability — separate from `edgePct`/`picks`, which are
+ * market-implied. Null when there isn't enough ingested history yet (see
+ * `estimate_match_probability` in `@bet/mcp-tools`); never mixed into the same
+ * number as the market edge.
+ */
+export interface FeaturedStatisticalProbability {
+  homeWinProb: number;
+  drawProb: number;
+  awayWinProb: number;
+}
+
 export interface FeaturedEvent {
   fixtureId: string;
   sportId: string;
@@ -45,6 +57,7 @@ export interface FeaturedEvent {
   /** Best edge across the fixture's selections, in percent. */
   edgePct: number;
   picks: FeaturedPick[];
+  statisticalProbability: FeaturedStatisticalProbability | null;
 }
 
 export interface FeaturedEventsResult {
@@ -137,6 +150,9 @@ export async function getFeaturedEvents(): Promise<FeaturedEventsResult> {
     }
 
     const events: FeaturedEvent[] = [];
+    // fixtureId -> participant ids, kept alongside `events` so the (optional)
+    // statistical-probability decoration pass below doesn't need to re-derive them.
+    const participantsByFixture = new Map<string, { participant1Id: string; participant2Id: string }>();
     for (const entry of priced) {
       if (!entry) continue;
       const { fixture, matchup, bookmakerOdds, catalog } = entry;
@@ -164,13 +180,18 @@ export async function getFeaturedEvents(): Promise<FeaturedEventsResult> {
           edgePct: selection.edgePct,
           best: selection.edgePct === bestEdge,
         })),
+        statisticalProbability: null,
+      });
+      participantsByFixture.set(fixture.fixtureId, {
+        participant1Id: fixture.participant1Id,
+        participant2Id: fixture.participant2Id,
       });
     }
 
     events.sort((a, b) => b.edgePct - a.edgePct);
     const top = events.slice(0, MAX_EVENTS);
 
-    await decorateTournaments(top);
+    await Promise.all([decorateTournaments(top), decorateStatisticalProbability(top, participantsByFixture)]);
     return { events: top, source, cachedAt, error: null };
   } catch (e) {
     return {
@@ -309,4 +330,35 @@ async function decorateTournaments(events: FeaturedEvent[]): Promise<void> {
   } catch {
     // Names are cosmetic — the sport name already reads fine.
   }
+}
+
+/**
+ * Statistical (Poisson) win/draw/loss estimate per event, DB-only (see
+ * estimate_match_probability in @bet/mcp-tools — never a live Highlightly call, so
+ * this never competes with the ingestion cron's request budget). Best-effort: a
+ * missing/incomplete mapping just leaves `statisticalProbability: null`, which the UI
+ * renders as "sin datos" rather than erroring the whole board.
+ */
+async function decorateStatisticalProbability(
+  events: FeaturedEvent[],
+  participantsByFixture: Map<string, { participant1Id: string; participant2Id: string }>,
+): Promise<void> {
+  await Promise.all(
+    events.map(async (event) => {
+      const participants = participantsByFixture.get(event.fixtureId);
+      if (!participants) return;
+      try {
+        const result = await estimateMatchProbability({
+          participant1Id: participants.participant1Id,
+          participant2Id: participants.participant2Id,
+          tournamentId: event.tournamentId,
+        });
+        if (result.available) {
+          event.statisticalProbability = result.statisticalProbability;
+        }
+      } catch {
+        // Leave statisticalProbability: null — the market edge is still shown either way.
+      }
+    }),
+  );
 }

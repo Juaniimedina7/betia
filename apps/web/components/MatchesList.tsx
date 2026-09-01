@@ -160,6 +160,25 @@ export function MatchesList({
                     </button>
                   </div>
                 </div>
+
+                {match.statisticalProbability && (
+                  <div
+                    className="mt-4 pt-4 border-t border-gray-800"
+                    title="Probabilidad estadística (modelo de Poisson sobre goles históricos) — no es la probabilidad de mercado"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[9px] text-gray-500 font-bold uppercase tracking-wider">Prob. histórica</span>
+                      <span className="text-[10px] text-gray-400 font-medium">
+                        {Math.round(match.statisticalProbability.homeWinProb * 100)}% · {Math.round(match.statisticalProbability.drawProb * 100)}% · {Math.round(match.statisticalProbability.awayWinProb * 100)}%
+                      </span>
+                    </div>
+                    <div className="flex h-1.5 overflow-hidden rounded-full bg-gray-900">
+                      <span style={{ width: `${match.statisticalProbability.homeWinProb * 100}%`, background: "#B8FF35" }} />
+                      <span style={{ width: `${match.statisticalProbability.drawProb * 100}%`, background: "#f4c430" }} />
+                      <span style={{ width: `${match.statisticalProbability.awayWinProb * 100}%`, background: "#3dd8ff" }} />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           );

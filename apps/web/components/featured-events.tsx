@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Reveal } from "@/components/reveal";
 import { SportIcon } from "@/components/sport-icon";
-import type { FeaturedEvent, FeaturedPick } from "@/lib/featured-events";
+import type { FeaturedEvent, FeaturedPick, FeaturedStatisticalProbability } from "@/lib/featured-events";
 
 type Tab = "destacados" | "vivo" | "proximos";
 
@@ -122,6 +122,10 @@ export function FeaturedEvents({
               </span>
             </div>
 
+            {event.statisticalProbability && (
+              <StatisticalProbabilityBar probability={event.statisticalProbability} />
+            )}
+
             <div className="mt-3.5 grid grid-cols-3 gap-2">
               {event.picks.map((pick) => (
                 <button
@@ -192,6 +196,35 @@ export function FeaturedEventsHeader() {
       >
         Ver todas las cuotas →
       </Link>
+    </div>
+  );
+}
+
+/**
+ * Statistical (Poisson) win/draw/loss estimate — visually distinct from the market
+ * "edge" chip above it, and never labeled as a probability of winning a bet. See
+ * apps/web/lib/agent/parlay-agent.ts for the same market-vs-statistical distinction
+ * enforced in the agent's own responses.
+ */
+function StatisticalProbabilityBar({ probability }: { probability: FeaturedStatisticalProbability }) {
+  const home = Math.round(probability.homeWinProb * 100);
+  const draw = Math.round(probability.drawProb * 100);
+  const away = Math.round(probability.awayWinProb * 100);
+
+  return (
+    <div
+      className="mt-2.5 flex items-center gap-2"
+      title="Probabilidad estadística (modelo de Poisson sobre goles históricos) — no es la probabilidad de mercado"
+    >
+      <span className="shrink-0 text-[0.65rem] uppercase tracking-wide text-[var(--color-ink-faint)]">Prob. hist.</span>
+      <div className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
+        <span style={{ width: `${home}%`, background: "var(--color-edge)" }} />
+        <span style={{ width: `${draw}%`, background: "var(--color-gold)" }} />
+        <span style={{ width: `${away}%`, background: "var(--color-live)" }} />
+      </div>
+      <span className="tnum shrink-0 text-[0.7rem] text-[var(--color-ink-muted)]">
+        {home}% · {draw}% · {away}%
+      </span>
     </div>
   );
 }

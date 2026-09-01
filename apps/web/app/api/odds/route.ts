@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { estimateMatchProbability } from "@bet/mcp-tools";
 import { getOddsPapiClient, ListFixturesParams } from "@bet/oddspapi-client";
 
 export const revalidate = 60;
@@ -54,6 +55,18 @@ export async function GET(request: Request) {
     // Obtener las cuotas de forma secuencial para no superar el rate limit (1 req/sec) de la capa gratuita
     const matchesWithOdds = [];
     for (const match of nextMatches) {
+      // DB-only (never a live Highlightly call, see CLAUDE.md's "Highlightly quota"
+      // section) — safe to run alongside the OddsPapi rate-limit pacing above without
+      // burning any extra external-API budget. Best-effort: statisticalProbability
+      // stays null (not shown) if there isn't enough ingested history yet.
+      const statisticalProbability = await estimateMatchProbability({
+        participant1Id: match.participant1Id,
+        participant2Id: match.participant2Id,
+        tournamentId: match.tournamentId,
+      })
+        .then((r) => (r.available ? r.statisticalProbability : null))
+        .catch(() => null);
+
       try {
         const detailedMatch = await client.getOdds(match.fixtureId);
         // Mezclamos para no perder los nombres de los equipos, ya que /odds a veces no los trae
@@ -61,12 +74,13 @@ export async function GET(request: Request) {
           ...detailedMatch,
           participant1Name: match.participant1Name || detailedMatch.participant1Name,
           participant2Name: match.participant2Name || detailedMatch.participant2Name,
+          statisticalProbability,
         });
         // Pequeño delay de 250ms para ayudar a evitar el rate limit 429
         await new Promise(r => setTimeout(r, 250));
       } catch (e) {
         console.error(`Error fetching odds for match ${match.fixtureId}:`, e);
-        matchesWithOdds.push(match);
+        matchesWithOdds.push({ ...match, statisticalProbability });
       }
     }
 
