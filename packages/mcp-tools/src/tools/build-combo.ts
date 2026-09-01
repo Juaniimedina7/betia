@@ -1,5 +1,7 @@
+import { getDb, oddsCache } from "@bet/db";
 import { getOddsPapiClient, type Fixture } from "@bet/oddspapi-client";
 import { buildCombo as runComboSearch, extractCandidateLegs } from "@bet/combo-engine";
+import { and, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { listTournaments } from "./list-tournaments";
 import { toUserFacingError } from "../user-facing-error";
@@ -87,6 +89,17 @@ export async function buildComboTool(input: BuildComboInput) {
     }
   }
 
+  // All 7 live bookmaker calls failed (e.g. OddsPapi's monthly quota is exhausted) —
+  // fall back to whatever /api/ingest/poll last wrote to odds_cache (pinnacle only,
+  // refreshed twice daily) instead of failing the whole combo outright. Same pattern
+  // as list-fixtures.ts's live-fetch + DB-cache fallback.
+  if (mergedFixtures.size === 0) {
+    const cached = await readCachedFixtures(tournamentIds);
+    for (const fixture of cached) {
+      mergedFixtures.set(fixture.fixtureId, fixture);
+    }
+  }
+
   if (mergedFixtures.size === 0) {
     const firstError = allResponses.find((r) => r.status === "rejected");
     if (firstError && firstError.status === "rejected") {
@@ -106,4 +119,29 @@ export async function buildComboTool(input: BuildComboInput) {
     riskProfile: input.riskProfile,
     tolerance: input.tolerance,
   });
+}
+
+/** Best-effort read of odds_cache (written by /api/ingest/poll) — never throws. */
+async function readCachedFixtures(tournamentIds: string[]): Promise<Fixture[]> {
+  try {
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(oddsCache)
+      .where(and(inArray(oddsCache.tournamentId, tournamentIds), isNotNull(oddsCache.bookmakerOdds)));
+    return rows.map((r) => ({
+      fixtureId: r.fixtureId,
+      sportId: r.sportId,
+      tournamentId: r.tournamentId ?? "",
+      participant1Id: r.participant1Id ?? "",
+      participant2Id: r.participant2Id ?? "",
+      participant1Name: r.participant1Name ?? undefined,
+      participant2Name: r.participant2Name ?? undefined,
+      startTime: (r.startTime ?? r.updatedAt).toISOString(),
+      statusId: r.statusId ?? undefined,
+      bookmakerOdds: (r.bookmakerOdds as Fixture["bookmakerOdds"]) ?? undefined,
+    }));
+  } catch {
+    return [];
+  }
 }
