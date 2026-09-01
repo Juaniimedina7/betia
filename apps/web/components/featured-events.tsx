@@ -22,11 +22,16 @@ function formatEdge(edgePct: number): string {
 function formatKickoff(startTime: string): string {
   const date = new Date(startTime);
   if (Number.isNaN(date.getTime())) return "";
+  // Pinned timeZone: this renders server-side (Vercel Functions run in UTC) and
+  // hydrates client-side (visitor's local TZ) from the same startTime — without
+  // an explicit zone those two disagree and React throws a hydration mismatch
+  // (error #418) on the kickoff text.
   return date.toLocaleString("es-AR", {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "America/Argentina/Buenos_Aires",
   });
 }
 
