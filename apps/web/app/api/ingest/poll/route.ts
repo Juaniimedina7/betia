@@ -4,7 +4,10 @@ import { sql } from "drizzle-orm";
 import { watchedTournamentIds } from "@/lib/ingest/watched-tournaments";
 
 const ODDS_CACHE_TTL_SECONDS = 120;
-const DEFAULT_BOOKMAKER = "pinnacle";
+// build_combo (via odds_cache) needs at least two books to compute edge — Pinnacle
+// as the de-vig reference plus one more to compare against. Redo the request budget
+// math in CLAUDE.md's "OddsPapi quota" section before changing this list or cadence.
+const DEFAULT_BOOKMAKERS = ["pinnacle", "bet365"];
 
 export async function GET(req: Request) {
   const cronSecret = process.env.CRON_SECRET;
@@ -15,10 +18,14 @@ export async function GET(req: Request) {
 
   const client = getOddsPapiClient();
   const cache = new RedisOddsCache();
+  const bookmakers = (process.env.ODDSPAPI_BOOKMAKERS || "")
+    .split(",")
+    .map((b) => b.trim())
+    .filter(Boolean);
   const source = new RestPollingSource({
     client,
     watchedTournamentIds,
-    bookmaker: process.env.ODDSPAPI_BOOKMAKER || DEFAULT_BOOKMAKER,
+    bookmakers: bookmakers.length > 0 ? bookmakers : DEFAULT_BOOKMAKERS,
   });
 
   const db = getDb();
@@ -30,10 +37,35 @@ export async function GET(req: Request) {
       cache.setFixtureOdds(event.fixtureId, event.bookmakerOdds, ODDS_CACHE_TTL_SECONDS),
       db
         .insert(oddsCache)
-        .values({ fixtureId: event.fixtureId, sportId: "", bookmakerOdds: event.bookmakerOdds })
+        .values({
+          fixtureId: event.fixtureId,
+          sportId: event.sportId,
+          tournamentId: event.tournamentId,
+          participant1Id: event.participant1Id,
+          participant2Id: event.participant2Id,
+          participant1Name: event.participant1Name,
+          participant2Name: event.participant2Name,
+          startTime: event.startTime ? new Date(event.startTime) : undefined,
+          statusId: event.statusId,
+          bookmakerOdds: event.bookmakerOdds,
+        })
         .onConflictDoUpdate({
           target: oddsCache.fixtureId,
-          set: { bookmakerOdds: sql`excluded.bookmaker_odds`, updatedAt: sql`now()` },
+          set: {
+            // Polling multiple bookmakers means multiple events land for the same
+            // fixture (one per book) — merge into the existing JSON instead of
+            // overwriting, or each book's write would clobber the last one's.
+            bookmakerOdds: sql`coalesce(${oddsCache.bookmakerOdds}, '{}'::jsonb) || excluded.bookmaker_odds`,
+            sportId: sql`excluded.sport_id`,
+            tournamentId: sql`excluded.tournament_id`,
+            participant1Id: sql`excluded.participant1_id`,
+            participant2Id: sql`excluded.participant2_id`,
+            participant1Name: sql`excluded.participant1_name`,
+            participant2Name: sql`excluded.participant2_name`,
+            startTime: sql`excluded.start_time`,
+            statusId: sql`excluded.status_id`,
+            updatedAt: sql`now()`,
+          },
         }),
     ]);
   });

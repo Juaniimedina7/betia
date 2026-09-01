@@ -2,6 +2,14 @@ import type { BookmakerOdds } from "../types";
 
 export interface OddsUpdateEvent {
   fixtureId: string;
+  sportId: string;
+  tournamentId?: string;
+  participant1Id?: string;
+  participant2Id?: string;
+  participant1Name?: string;
+  participant2Name?: string;
+  startTime?: string;
+  statusId?: string;
   bookmakerOdds: BookmakerOdds;
   receivedAt: number;
 }

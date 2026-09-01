@@ -1,15 +1,20 @@
-name: Poll odds twice a day
+name: Poll odds once a day
 
 # Vercel Hobby solo permite crons de 1 vez por dia, asi que esto corre desde
 # GitHub Actions en su lugar y pega directo al endpoint de ingesta.
 #
 # OddsPapi factura por cuota MENSUAL (250 requests/mes en el plan actual), no
-# por ventana horaria. Cada corrida gasta ~4 requests (20 tournamentIds
-# watcheados en /api/ingest/poll, en lotes de 5) — 2 corridas/dia son ~60/mes,
-# ~240 requests/mes, dejando margen para workflow_dispatch manuales.
+# por ventana horaria. /api/ingest/poll ahora pollea 2 bookmakers (Pinnacle +
+# uno mas, para que build_combo pueda calcular edge real desde odds_cache en
+# vez de pegarle en vivo a OddsPapi) — 20 tournamentIds watcheados, en lotes
+# de 5, son ~4 requests/corrida/bookmaker => ~8 requests/corrida. 1 corrida/dia
+# son ~30/mes x 8 = ~240 requests/mes, dejando margen para workflow_dispatch
+# manuales. Bajamos de 2 a 1 corrida/dia para que sumar el segundo bookmaker
+# entre en la cuota — redo this math (runs/day x tournamentIds/5 x bookmakers
+# x 30) antes de subir la cadencia, la lista de torneos o de bookmakers.
 on:
   schedule:
-    - cron: "0 9,21 * * *"
+    - cron: "0 9 * * *"
   workflow_dispatch: # permite dispararlo a mano desde la pestania Actions
 
 jobs:

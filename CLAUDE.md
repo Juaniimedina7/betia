@@ -49,17 +49,46 @@ via `oddspapi.io/es/docs/requests-and-quota`). The 429 seen this session
 ("Request limit exceeded... limit of 250 requests") was the whole month's budget,
 not a burst limit — plan the ingest cron's cost around a monthly total, not a rate.
 
-`.github/workflows/poll-odds.yml` runs `/api/ingest/poll` twice a day (`0 9,21 * * *`),
-~4 requests/run (20 hardcoded soccer `tournamentIds` in
-`apps/web/app/api/ingest/poll/route.ts`, batched 5 per `/v4/odds-by-tournaments` call)
-→ ~240 requests/month, leaving a little headroom for manual `workflow_dispatch` runs.
-The route no longer calls `listSports()` on every run (dropped — it's static reference
-data already refreshed by live UI traffic; wasn't worth ~60 requests/month).
+`.github/workflows/poll-odds.yml` runs `/api/ingest/poll` **once a day** (`0 9 * * *`)
+across **2 bookmakers** (`DEFAULT_BOOKMAKERS = ["pinnacle", "bet365"]` in
+`apps/web/app/api/ingest/poll/route.ts`, overridable via `ODDSPAPI_BOOKMAKERS`,
+comma-separated) — 20 hardcoded soccer `tournamentIds`, batched 5 per
+`/v4/odds-by-tournaments` call, so ~4 requests/bookmaker/run × 2 bookmakers = ~8
+requests/run → ~240 requests/month, leaving a little headroom for manual
+`workflow_dispatch` runs. Was 2 runs/day with 1 bookmaker until 2026-09-01; dropped to
+1 run/day so a second bookmaker fits the same monthly budget (see "build_combo reads
+odds_cache first" below for why a second bookmaker matters). The route no longer calls
+`listSports()` on every run (dropped — it's static reference data already refreshed by
+live UI traffic; wasn't worth ~60 requests/month).
+
+`packages/oddspapi-client/src/ingestion/rest-polling-source.ts` polls once per
+bookmaker (one full pass over the tournament batches per book, since
+`/v4/odds-by-tournaments` only accepts one bookmaker per call) and each poll's DB
+upsert (`apps/web/app/api/ingest/poll/route.ts`) merges into `odds_cache.bookmaker_odds`
+via a `jsonb ||` — **not** an overwrite — since one book's write landing after
+another's for the same fixture would otherwise clobber it.
 
 If you need to add sports beyond soccer (basketball/tennis/boxing were requested but
 blocked this session by the exhausted quota — couldn't verify their `sportId`s live)
-or change cadence/tournament count, redo this budget math first:
-`requests/month = runs/month × ceil(tournamentIds / 5)`, and keep it under ~250.
+or change cadence/tournament count/bookmaker count, redo this budget math first:
+`requests/month = runs/month × ceil(tournamentIds / 5) × bookmakers`, and keep it
+under ~250.
+
+### build_combo reads odds_cache first (2026-09-01)
+
+`packages/mcp-tools/src/tools/build-combo.ts` (the tool behind the agent's "armar
+combinada") used to hit OddsPapi live across 7 bookmakers on **every** call, no
+fallback — a handful of agent chats could blow the entire monthly quota on their own,
+on top of the cron's budget above, and once the quota was exhausted every combo request
+failed outright with a generic error. It now reads `odds_cache` (scoped to the
+requested `tournamentIds`) first — free, and already covers the 20 watched tournaments
+via the cron above — and only falls back to a live fetch (same 2-bookmaker list the
+cron polls: Pinnacle + one more, so edge quality doesn't regress) when the cache has
+nothing for the requested tournaments (an off-watchlist tournament, or a cold cache).
+`packages/mcp-tools/src/tools/list-fixtures.ts` already had this live-then-cache
+fallback shape for fixture listings; this just gives `build_combo` the DB-first version
+of the same pattern, since it's the tool actually spending the quota on every
+user-triggered request.
 
 ## Highlightly quota (2026-08-31)
 
@@ -97,16 +126,19 @@ an entire league in **one call** — no per-team stats endpoint needed, and no
 current-season restriction. This is what makes covering all 20 watched tournaments
 affordable: `apps/web/app/api/ingest/poll-stats/route.ts` refreshes **all 20 leagues'
 full standings every run** (flat 20 requests, no staleness tracking needed for team
-stats at all — always ≤12h stale given the 2x/day cron). Head-to-head
-(`GET /head-2-head?teamIdOne&teamIdTwo`) is still pairwise, so that side keeps a
-staleness window (14 days — head-to-head history only changes when the same two teams
-play again) and a per-run cap (`MAX_H2H_FETCHES_PER_RUN=15`). Budget:
-`2 runs/day × (20 standings + 15 h2h) = 70 requests/day`, leaving ~30/day headroom for
-manual reruns. Redo this math (`requests/day = runs/day × per-run cost`) before
-changing cadence, tournament coverage, or the H2H cap.
+stats at all — always ≤24h stale given the cron's current cadence, see below).
+Head-to-head (`GET /head-2-head?teamIdOne&teamIdTwo`) is still pairwise, so that side
+keeps a staleness window (14 days — head-to-head history only changes when the same two
+teams play again) and a per-run cap (`MAX_H2H_FETCHES_PER_RUN=15`). Budget:
+`1 run/day × (20 standings + 15 h2h) = 35 requests/day`, well under the 100/day cap —
+was `2 runs/day` (70/day) until 2026-09-01, when the shared cron (see below) dropped to
+once a day so OddsPapi's poll could add a second bookmaker within its own budget; this
+route's own headroom just grew as a side effect. Redo this math
+(`requests/day = runs/day × per-run cost`) before changing cadence, tournament
+coverage, or the H2H cap.
 
 `.github/workflows/poll-odds.yml` runs `/api/ingest/poll-stats` as a second,
-independent step in the same twice-daily job as the odds poll (`0 9,21 * * *`) — a
+independent step in the same once-a-day job as the odds poll (`0 9 * * *`) — a
 stats-ingestion failure must never mask a successful odds poll, or vice versa.
 
 OddsPapi `tournamentId` → Highlightly `{leagueId, season}` is hand-curated in
