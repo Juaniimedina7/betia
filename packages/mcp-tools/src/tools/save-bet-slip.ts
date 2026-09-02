@@ -4,13 +4,13 @@ import { requireUserId, type ToolAuthContext } from "../context";
 
 const legSchema = z.object({
   fixtureId: z.string(),
-  sportId: z.string(),
-  tournamentId: z.string(),
-  participant1Id: z.string(),
-  participant2Id: z.string(),
+  sportKey: z.string(),
+  homeTeam: z.string().optional(),
+  awayTeam: z.string().optional(),
   startTime: z.string(),
   marketId: z.string(),
-  outcomeId: z.string(),
+  outcomeName: z.string(),
+  point: z.number().optional(),
   selectionLabel: z.string(),
   bookmaker: z.string(),
   priceDecimal: z.number(),
@@ -51,18 +51,24 @@ export async function saveBetSlip(input: SaveBetSlipInput, ctx: ToolAuthContext 
 
   if (!slip) throw new Error("Failed to insert bet slip");
 
+  // bet_slip_legs keeps its OddsPapi-era column names (sportId/tournamentId/
+  // participant1Id/participant2Id) as a point-in-time historical snapshot — the
+  // provider migration didn't rename these columns (see CLAUDE.md), so new rows map
+  // the closest new-model equivalents onto them: sportKey fills both sportId and
+  // tournamentId (there's no separate tournament level anymore), and team name
+  // strings fill the id columns (no stable participant id from this provider).
   await db.insert(betSlipLegs).values(
     input.legs.map((leg, index) => ({
       betSlipId: slip.id,
       legIndex: index,
       fixtureId: leg.fixtureId,
-      sportId: leg.sportId,
-      tournamentId: leg.tournamentId,
-      participant1Id: leg.participant1Id,
-      participant2Id: leg.participant2Id,
+      sportId: leg.sportKey,
+      tournamentId: leg.sportKey,
+      participant1Id: leg.homeTeam ?? "",
+      participant2Id: leg.awayTeam ?? "",
       startTime: new Date(leg.startTime),
       marketId: leg.marketId,
-      outcomeId: leg.outcomeId,
+      outcomeId: leg.point !== undefined ? `${leg.outcomeName}@${leg.point}` : leg.outcomeName,
       selectionLabel: leg.selectionLabel,
       bookmaker: leg.bookmaker,
       priceDecimal: leg.priceDecimal.toFixed(3),

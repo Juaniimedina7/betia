@@ -125,82 +125,48 @@ export const betSlipLegs = pgTable(
   ],
 );
 
-/** Best-effort backup of the last known /v4/sports response, used when OddsPapi is unreachable. */
+/** Best-effort backup of the last known /v4/sports response, used when the live API is unreachable. */
 export const sportsCache = pgTable("sports_cache", {
-  sportId: text("sport_id").primaryKey(),
-  name: text("name").notNull(),
+  sportKey: text("sport_key").primaryKey(),
+  group: text("group").notNull(),
+  title: text("title").notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** Best-effort backup of the last known /v4/tournaments response per sport, used when OddsPapi is unreachable. */
-export const tournamentsCache = pgTable(
-  "tournaments_cache",
-  {
-    tournamentId: text("tournament_id").primaryKey(),
-    sportId: text("sport_id").notNull(),
-    name: text("name").notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [index("tournaments_cache_sport_id_idx").on(table.sportId)],
-);
-
 /**
- * Last known fixture metadata + odds per fixture, upserted whenever a live OddsPapi
- * call succeeds. Serves as a durable backup (unlike the 120s-TTL Redis cache) so
- * `/odds`, `/odds/[sportId]` and `/fixtures/[fixtureId]` still have something to show
- * when the live API fails.
+ * Last known event metadata + odds per event, upserted by the ingest cron only.
+ * Serves as a durable backup (unlike the 120s-TTL Redis cache) so `/odds`,
+ * `/odds/[sportId]` and `/fixtures/[fixtureId]` — none of which call the live API
+ * themselves — always have something to read.
  */
 export const oddsCache = pgTable(
   "odds_cache",
   {
-    fixtureId: text("fixture_id").primaryKey(),
-    sportId: text("sport_id").notNull(),
-    tournamentId: text("tournament_id"),
-    participant1Id: text("participant1_id"),
-    participant2Id: text("participant2_id"),
-    participant1Name: text("participant1_name"),
-    participant2Name: text("participant2_name"),
-    startTime: timestamp("start_time", { withTimezone: true }),
-    statusId: text("status_id"),
+    eventId: text("event_id").primaryKey(),
+    sportKey: text("sport_key").notNull(),
+    sportTitle: text("sport_title"),
+    homeTeam: text("home_team"),
+    awayTeam: text("away_team"),
+    commenceTime: timestamp("commence_time", { withTimezone: true }),
     bookmakerOdds: jsonb("bookmaker_odds"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("odds_cache_sport_id_idx").on(table.sportId)],
+  (table) => [index("odds_cache_sport_key_idx").on(table.sportKey)],
 );
 
 /**
- * Static reference data from GET /v4/markets: human-readable market/outcome names,
- * keyed by OddsPapi's numeric marketId. Lets the UI show "Ganador del partido"
- * instead of a bare marketId. Rarely changes — seeded/refreshed occasionally, not
- * on every request.
- */
-export const marketCatalog = pgTable(
-  "market_catalog",
-  {
-    marketId: text("market_id").primaryKey(),
-    sportId: text("sport_id").notNull(),
-    marketName: text("market_name").notNull(),
-    marketType: text("market_type").notNull(),
-    handicap: numeric("handicap", { precision: 6, scale: 2 }),
-    period: text("period"),
-    outcomes: jsonb("outcomes").notNull(), // [{ outcomeId: string, outcomeName: string }]
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [index("market_catalog_sport_id_idx").on(table.sportId)],
-);
-
-/**
- * Resolves an OddsPapi participant to its external (Highlightly) team id by name,
- * cached so repeated ingestion runs don't re-match every time. A null externalTeamId
- * means a resolution attempt was made and failed to find a confident match (retried
- * on a slower cadence than a fresh/never-tried participant). Column names are
- * provider-agnostic on purpose — this project already switched stats providers once
- * (API-Football -> Highlightly, see CLAUDE.md's "Highlightly quota" section) and
- * naming this after a specific provider would just mean renaming again next time.
+ * Resolves a team name (scoped to the sport_key it was seen in) to its external
+ * (Highlightly) team id by name, cached so repeated ingestion runs don't re-match
+ * every time. A null externalTeamId means a resolution attempt was made and failed
+ * to find a confident match (retried on a slower cadence than a fresh/never-tried
+ * team). `teamKey` is `${sportKey}:${slug(teamName)}` — the odds provider has no
+ * stable participant id, only name strings, so this is the tightest collision
+ * boundary available (the same real-world club playing in two watched competitions
+ * gets two independent rows, matching how resolution already worked per-tournament).
  */
 export const teamIdMap = pgTable("team_id_map", {
-  oddsPapiParticipantId: text("oddspapi_participant_id").primaryKey(),
-  participantName: text("participant_name").notNull(),
+  teamKey: text("team_key").primaryKey(),
+  teamName: text("team_name").notNull(),
   externalTeamId: text("external_team_id"),
   matchedTeamName: text("matched_team_name"),
   matchStrategy: text("match_strategy", { enum: ["exact", "fuzzy", "unresolved"] }).notNull(),

@@ -8,16 +8,9 @@ import { getResolvedTeamId } from "../team-resolution";
 type TeamSeasonStatsRow = InferSelectModel<typeof teamSeasonStats>;
 
 export const estimateMatchProbabilityInput = z.object({
-  participant1Id: z.string(),
-  participant2Id: z.string(),
-  tournamentId: z.string(),
-  /**
-   * Which participant is the home team. Defaults to participant1Id, but is left
-   * explicit rather than assumed — it is not confirmed that OddsPapi always orders
-   * participant1/participant2 as home/away (see CLAUDE.md's "Highlightly quota"
-   * section, open risk #1).
-   */
-  homeParticipantId: z.string().optional(),
+  homeTeam: z.string(),
+  awayTeam: z.string(),
+  sportKey: z.string(),
 });
 
 export type EstimateMatchProbabilityInput = z.infer<typeof estimateMatchProbabilityInput>;
@@ -39,18 +32,14 @@ function awaySplits(row: TeamSeasonStatsRow): TeamGoalSplits {
  * ingested (see CLAUDE.md's "Highlightly quota" section for the ingestion budget).
  */
 export async function estimateMatchProbability(input: EstimateMatchProbabilityInput) {
-  const league = resolveLeagueRef(input.tournamentId);
+  const league = resolveLeagueRef(input.sportKey);
   if (!league) {
     return { available: false as const, reason: "tournament_not_mapped" as const };
   }
 
-  const homeParticipantId = input.homeParticipantId ?? input.participant1Id;
-  const awayParticipantId =
-    homeParticipantId === input.participant1Id ? input.participant2Id : input.participant1Id;
-
   const [homeTeamId, awayTeamId] = await Promise.all([
-    getResolvedTeamId(homeParticipantId),
-    getResolvedTeamId(awayParticipantId),
+    getResolvedTeamId(input.sportKey, input.homeTeam),
+    getResolvedTeamId(input.sportKey, input.awayTeam),
   ]);
 
   if (!homeTeamId || !awayTeamId) {
@@ -91,8 +80,8 @@ export async function estimateMatchProbability(input: EstimateMatchProbabilityIn
     expectedGoals: { home: estimate.expectedHomeGoals, away: estimate.expectedAwayGoals },
     leagueAverageSource: leagueAverage.source,
     basedOn: {
-      homeParticipantId,
-      awayParticipantId,
+      homeTeam: input.homeTeam,
+      awayTeam: input.awayTeam,
       homeMatchesPlayed: homeRow.matchesPlayedHome,
       awayMatchesPlayed: awayRow.matchesPlayedAway,
     },

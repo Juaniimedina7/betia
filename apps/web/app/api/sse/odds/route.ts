@@ -1,4 +1,4 @@
-import { RedisOddsCache } from "@bet/oddspapi-client";
+import { RedisOddsCache } from "@bet/odds-api-client";
 
 const POLL_INTERVAL_MS = 4000;
 const encoder = new TextEncoder();

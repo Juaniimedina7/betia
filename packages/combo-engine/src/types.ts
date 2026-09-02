@@ -1,15 +1,13 @@
 export interface CandidateLeg {
   fixtureId: string;
-  sportId: string;
-  tournamentId: string;
-  participant1Id: string;
-  participant2Id: string;
-  participant1Name?: string;
-  participant2Name?: string;
+  sportKey: string;
+  homeTeam?: string;
+  awayTeam?: string;
   startTime: string;
   marketId: string;
-  outcomeId: string;
-  playerIdx: string;
+  outcomeName: string;
+  /** Line for spreads/totals markets (the handicap or the over/under total). Absent for h2h. */
+  point?: number;
   selectionLabel: string;
   bookmaker: string;
   priceDecimal: number;

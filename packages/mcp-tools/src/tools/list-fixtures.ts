@@ -1,107 +1,63 @@
 import { getDb, oddsCache } from "@bet/db";
-import { getOddsPapiClient, type Fixture } from "@bet/oddspapi-client";
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import type { BookmakerOdds } from "@bet/odds-api-client";
+import { and, eq, gte, isNotNull, lte } from "drizzle-orm";
 import { z } from "zod";
-import { toUserFacingError } from "../user-facing-error";
 
 export const listFixturesInput = z.object({
+  // Actually a sport_key (e.g. "soccer_epl") — kept as `tournamentId` to match
+  // list_tournaments' output field without renaming call sites. `sportId` (a group
+  // like "Soccer") has no matching column on odds_cache, so it's accepted but ignored.
   sportId: z.string().optional(),
   tournamentId: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
-  statusId: z.string().optional(),
 });
 
 export type ListFixturesInput = z.infer<typeof listFixturesInput>;
 
+export interface FixtureSummary {
+  fixtureId: string;
+  sportKey: string;
+  tournamentId: string; // same value as sportKey — kept for page compatibility
+  homeTeam?: string;
+  awayTeam?: string;
+  startTime: string;
+  bookmakerOdds?: BookmakerOdds;
+}
+
+/**
+ * DB-only read of odds_cache — no live call, ever (build_combo/list_fixtures/etc. all
+ * lost their live-fallback path in the migration off OddsPapi; only /api/ingest/poll
+ * calls the odds API now).
+ */
 export async function listFixtures(input: ListFixturesInput) {
   try {
-    const fixtures = await getOddsPapiClient().listFixtures(input);
-    await cacheFixtures(fixtures);
-    return { fixtures, source: "live" as const, cachedAt: undefined as string | undefined };
-  } catch (liveError) {
-    const cached = await readCachedFixtures(input.sportId);
-    if (cached.fixtures.length > 0) {
-      return { ...cached, source: "cache" as const };
-    }
-    throw toUserFacingError(liveError);
-  }
-}
-
-const CACHE_WRITE_CHUNK_SIZE = 200;
-
-async function cacheFixtures(fixtures: Fixture[]): Promise<void> {
-  if (fixtures.length === 0) return;
-  const db = getDb();
-  for (let i = 0; i < fixtures.length; i += CACHE_WRITE_CHUNK_SIZE) {
-    const chunk = fixtures.slice(i, i + CACHE_WRITE_CHUNK_SIZE);
-    try {
-      await db
-        .insert(oddsCache)
-        .values(
-          chunk.map((f) => ({
-            fixtureId: f.fixtureId,
-            sportId: f.sportId,
-            tournamentId: f.tournamentId,
-            participant1Id: f.participant1Id,
-            participant2Id: f.participant2Id,
-            participant1Name: f.participant1Name,
-            participant2Name: f.participant2Name,
-            startTime: new Date(f.startTime),
-            statusId: f.statusId,
-          })),
-        )
-        .onConflictDoUpdate({
-          target: oddsCache.fixtureId,
-          set: {
-            sportId: sql`excluded.sport_id`,
-            tournamentId: sql`excluded.tournament_id`,
-            participant1Id: sql`excluded.participant1_id`,
-            participant2Id: sql`excluded.participant2_id`,
-            participant1Name: sql`excluded.participant1_name`,
-            participant2Name: sql`excluded.participant2_name`,
-            startTime: sql`excluded.start_time`,
-            statusId: sql`excluded.status_id`,
-            updatedAt: sql`now()`,
-          },
-        });
-    } catch {
-      // Best-effort backup — a DB hiccup shouldn't break the live response.
-    }
-  }
-}
-
-async function readCachedFixtures(
-  sportId: string | undefined,
-): Promise<{ fixtures: Fixture[]; cachedAt: string | undefined }> {
-  try {
     const db = getDb();
-    // Same principle as the live path: a fixture with no cached odds is a dead end
-    // (empty odds board) if the user clicks into it, so don't offer it as a fallback.
-    const hasOdds = isNotNull(oddsCache.bookmakerOdds);
-    const rows = sportId
-      ? await db.select().from(oddsCache).where(and(eq(oddsCache.sportId, sportId), hasOdds))
-      : await db.select().from(oddsCache).where(hasOdds);
-    const cachedAt = rows.reduce<Date | undefined>(
-      (latest, r) => (!latest || r.updatedAt > latest ? r.updatedAt : latest),
-      undefined,
-    );
-    return {
-      fixtures: rows.map((r) => ({
-        fixtureId: r.fixtureId,
-        sportId: r.sportId,
-        tournamentId: r.tournamentId ?? "",
-        participant1Id: r.participant1Id ?? "",
-        participant2Id: r.participant2Id ?? "",
-        participant1Name: r.participant1Name ?? undefined,
-        participant2Name: r.participant2Name ?? undefined,
-        startTime: (r.startTime ?? r.updatedAt).toISOString(),
-        statusId: r.statusId ?? undefined,
-        bookmakerOdds: (r.bookmakerOdds as Fixture["bookmakerOdds"]) ?? undefined,
-      })),
-      cachedAt: cachedAt?.toISOString(),
-    };
+    const sportKey = input.tournamentId;
+    const conditions = [isNotNull(oddsCache.bookmakerOdds)];
+    if (sportKey) conditions.push(eq(oddsCache.sportKey, sportKey));
+    if (input.from) conditions.push(gte(oddsCache.commenceTime, new Date(input.from)));
+    if (input.to) conditions.push(lte(oddsCache.commenceTime, new Date(input.to)));
+
+    const rows = await db
+      .select()
+      .from(oddsCache)
+      .where(and(...conditions));
+
+    const fixtures: FixtureSummary[] = rows
+      .map((r) => ({
+        fixtureId: r.eventId,
+        sportKey: r.sportKey,
+        tournamentId: r.sportKey,
+        homeTeam: r.homeTeam ?? undefined,
+        awayTeam: r.awayTeam ?? undefined,
+        startTime: (r.commenceTime ?? r.updatedAt).toISOString(),
+        bookmakerOdds: (r.bookmakerOdds as BookmakerOdds) ?? undefined,
+      }))
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+    return { fixtures, source: "cache" as const };
   } catch {
-    return { fixtures: [], cachedAt: undefined };
+    return { fixtures: [] as FixtureSummary[], source: "cache" as const };
   }
 }

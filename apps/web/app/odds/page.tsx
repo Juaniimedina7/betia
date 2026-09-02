@@ -37,7 +37,7 @@ export default async function OddsPage() {
         <div className="mt-8 rounded-2xl border border-[rgba(255,92,108,0.35)] bg-[rgba(255,92,108,0.08)] p-5 text-sm text-[var(--color-ink)]">
           <p className="font-semibold text-[var(--color-danger)]">No pudimos cargar los deportes</p>
           <p className="mt-1 text-[var(--color-ink-muted)]">
-            {error}. Revisá que <code className="tnum">ODDSPAPI_API_KEY</code> esté configurada.
+            {error}. Revisá que el cron de ingesta (<code className="tnum">/api/ingest/poll</code>) esté corriendo.
           </p>
         </div>
       )}

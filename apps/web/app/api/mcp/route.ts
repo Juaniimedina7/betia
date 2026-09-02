@@ -8,8 +8,6 @@ import {
   getBestPriceInput,
   getHeadToHead,
   getHeadToHeadInput,
-  getHistoricalOdds,
-  getHistoricalOddsInput,
   getOdds,
   getOddsByTournament,
   getOddsByTournamentInput,
@@ -51,7 +49,7 @@ const handler = createMcpHandler(
   (server) => {
     server.registerTool(
       "list_sports",
-      { description: "List all sports covered by OddsPapi.", inputSchema: listSportsInput },
+      { description: "List all sport groups covered by the product.", inputSchema: listSportsInput },
       async (input) => jsonContent(await listSports(input)),
     );
 
@@ -95,16 +93,10 @@ const handler = createMcpHandler(
       "build_combo",
       {
         description:
-          "Deterministically build a parlay/combo hitting a target multiplier or leg count from live odds, ranked by edge, never combining two legs from the same fixture.",
+          "Deterministically build a parlay/combo hitting a target multiplier or leg count from cached odds, ranked by edge, never combining two legs from the same fixture. Without `from`/`to` it considers every cached fixture regardless of kickoff date — pass them (ISO 8601 UTC) to scope to a specific day/window. Without `bookmaker` each leg independently shops for the best cached price, so legs in one combo can come from different bookmakers — pass `bookmaker` to force every leg onto one specific book instead.",
         inputSchema: buildComboInput,
       },
       async (input) => jsonContent(await buildComboTool(input)),
-    );
-
-    server.registerTool(
-      "get_historical_odds",
-      { description: "Get free historical odds for a fixture/market.", inputSchema: getHistoricalOddsInput },
-      async (input) => jsonContent(await getHistoricalOdds(input)),
     );
 
     server.registerTool(

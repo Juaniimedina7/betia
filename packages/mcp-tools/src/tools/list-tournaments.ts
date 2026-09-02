@@ -1,63 +1,41 @@
-import { getDb, tournamentsCache } from "@bet/db";
-import { getOddsPapiClient, type Tournament } from "@bet/oddspapi-client";
-import { eq, sql } from "drizzle-orm";
+import { getDb, sportsCache } from "@bet/db";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { toUserFacingError } from "../user-facing-error";
 
 export const listTournamentsInput = z.object({
+  // Actually a sports_cache "group" (e.g. "Soccer") — kept as `sportId` to match
+  // list_sports' output field without renaming call sites.
   sportId: z.string(),
 });
 
 export type ListTournamentsInput = z.infer<typeof listTournamentsInput>;
 
+export interface TournamentSummary {
+  tournamentId: string; // The Odds API sport_key (e.g. "soccer_epl") — the actual leaf identifier
+  sportId: string; // the group this sport_key belongs to
+  name: string;
+  /** The Odds API's /v4/sports has no country field — always undefined. Kept for
+   * apps/web/lib/popular-leagues.ts's shape; its country-based ranking degrades to
+   * "Internacional" for everything, a known UX regression from the provider switch. */
+  countryCode?: string;
+}
+
+/**
+ * DB-only read of sports_cache, filtered to one group — plays the role OddsPapi's
+ * tournaments-within-a-sport used to play. There's no separate tournament level on
+ * this provider; every sport_key already is one league.
+ */
 export async function listTournaments(input: ListTournamentsInput) {
   try {
-    const tournaments = await getOddsPapiClient().listTournaments(input.sportId);
-    await cacheTournaments(tournaments);
-    return { tournaments, source: "live" as const, cachedAt: undefined as string | undefined };
-  } catch (liveError) {
-    const cached = await readCachedTournaments(input.sportId);
-    if (cached.tournaments.length > 0) {
-      return { ...cached, source: "cache" as const };
-    }
-    throw toUserFacingError(liveError);
-  }
-}
-
-async function cacheTournaments(tournaments: Tournament[]): Promise<void> {
-  if (tournaments.length === 0) return;
-  try {
-    await getDb()
-      .insert(tournamentsCache)
-      .values(
-        tournaments.map((t) => ({ tournamentId: t.tournamentId, sportId: t.sportId, name: t.name })),
-      )
-      .onConflictDoUpdate({
-        target: tournamentsCache.tournamentId,
-        set: { sportId: sql`excluded.sport_id`, name: sql`excluded.name`, updatedAt: sql`now()` },
-      });
+    const db = getDb();
+    const rows = await db.select().from(sportsCache).where(eq(sportsCache.group, input.sportId));
+    const tournaments: TournamentSummary[] = rows.map((r) => ({
+      tournamentId: r.sportKey,
+      sportId: r.group,
+      name: r.title,
+    }));
+    return { tournaments, source: "cache" as const };
   } catch {
-    // Best-effort backup — a DB hiccup shouldn't break the live response.
-  }
-}
-
-async function readCachedTournaments(
-  sportId: string,
-): Promise<{ tournaments: Tournament[]; cachedAt: string | undefined }> {
-  try {
-    const rows = await getDb()
-      .select()
-      .from(tournamentsCache)
-      .where(eq(tournamentsCache.sportId, sportId));
-    const cachedAt = rows.reduce<Date | undefined>(
-      (latest, r) => (!latest || r.updatedAt > latest ? r.updatedAt : latest),
-      undefined,
-    );
-    return {
-      tournaments: rows.map((r) => ({ tournamentId: r.tournamentId, sportId: r.sportId, name: r.name })),
-      cachedAt: cachedAt?.toISOString(),
-    };
-  } catch {
-    return { tournaments: [], cachedAt: undefined };
+    return { tournaments: [] as TournamentSummary[], source: "cache" as const };
   }
 }

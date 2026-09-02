@@ -83,26 +83,23 @@ export function MatchesList({
           let odds2 = { label: "2", value: "-" };
 
           if (match.bookmakerOdds) {
-             const bookmakers = Object.keys(match.bookmakerOdds);
-             if (bookmakers.length > 0) {
-               const firstBookmaker = match.bookmakerOdds[bookmakers[0]];
-               // El mercado '1' o '1x2' usualmente guarda el ganador del partido. Si no, usamos el primero que venga.
-               const market = firstBookmaker.markets?.["1"] || Object.values(firstBookmaker.markets || {})[0]; 
-               if (market && market.outcomes) {
-                 // Intentar mapear 1, 2, 3 tradicionales de fútbol
-                 if (market.outcomes["1"] || market.outcomes["2"] || market.outcomes["3"]) {
-                   odds1.value = market.outcomes["1"]?.players?.["0"]?.price?.toFixed(2) || "-";
-                   oddsX.value = market.outcomes["2"]?.players?.["0"]?.price?.toFixed(2) || "-";
-                   odds2.value = market.outcomes["3"]?.players?.["0"]?.price?.toFixed(2) || "-";
-                 } else {
-                   // Si son otros IDs (ej. tenis, basket), tomamos los primeros 2 o 3
-                   const outcomes = Object.values(market.outcomes) as any[];
-                   if (outcomes[0]) odds1 = { label: "L", value: outcomes[0].players?.["0"]?.price?.toFixed(2) || "-" };
-                   if (outcomes[1]) odds2 = { label: "V", value: outcomes[1].players?.["0"]?.price?.toFixed(2) || "-" };
-                   if (outcomes[2]) oddsX = { label: "X", value: outcomes[2].players?.["0"]?.price?.toFixed(2) || "-" };
-                 }
-               }
-             }
+            const bookmakers = Object.keys(match.bookmakerOdds);
+            if (bookmakers.length > 0) {
+              const firstBookmaker = match.bookmakerOdds[bookmakers[0]];
+              // h2h ("1x2") is the main market; fall back to whatever's first if absent.
+              const market = firstBookmaker.markets?.["h2h"] || Object.values(firstBookmaker.markets || {})[0];
+              if (market?.outcomes) {
+                // Outcome names ARE the labels here (a team name, or "Draw") — no
+                // catalog lookup needed, unlike OddsPapi's opaque "1"/"2"/"3" ids.
+                const outcomes = market.outcomes as Array<{ name: string; price: number }>;
+                const home = outcomes.find((o) => o.name === homeTeam);
+                const away = outcomes.find((o) => o.name === awayTeam);
+                const draw = outcomes.find((o) => o.name === "Draw");
+                if (home) odds1 = { label: "1", value: home.price?.toFixed(2) || "-" };
+                if (draw) oddsX = { label: "X", value: draw.price?.toFixed(2) || "-" };
+                if (away) odds2 = { label: "2", value: away.price?.toFixed(2) || "-" };
+              }
+            }
           }
 
           return (

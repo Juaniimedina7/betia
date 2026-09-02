@@ -1,19 +1,18 @@
 import { getDb, oddsCache, teamHeadToHead, teamIdMap, teamSeasonStats } from "@bet/db";
 import { getHighlightlyClient, HighlightlyError } from "@bet/highlightly-client";
-import { LEAGUE_MAP } from "@bet/mcp-tools";
+import { buildTeamKey, LEAGUE_MAP } from "@bet/mcp-tools";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { resolveTeamName, type NamedTeamCandidate } from "@/lib/ingest/team-name-matching";
-import { watchedTournamentIds } from "@/lib/ingest/watched-tournaments";
+import { watchedSportKeys } from "@/lib/ingest/watched-sport-keys";
 
 // Budget: Highlightly's BASIC plan is 100 requests/DAY, with no per-minute throttle
-// observed in testing (unlike the OddsPapi/API-Football providers elsewhere in this
-// repo) — see CLAUDE.md's "Highlightly quota" section. `/standings` returns every
-// team's current-season home/away stats for an entire league in ONE call, so
-// refreshing all 20 watched tournaments every run costs a flat 20 requests — cheap
-// enough to just always do, no staleness tracking needed for team stats at all.
+// observed in testing — see CLAUDE.md's "Highlightly quota" section. `/standings`
+// returns every team's current-season home/away stats for an entire league in ONE
+// call, so refreshing all 16 watched leagues every run costs a flat 16 requests —
+// cheap enough to just always do, no staleness tracking needed for team stats at all.
 // Head-to-head is still pairwise (one call per team pair), so that side keeps a
-// staleness window + per-run cap: `2 runs/day × (20 standings + 15 h2h) = 70
-// requests/day`, leaving ~30/day headroom for manual reruns.
+// staleness window + per-run cap: `1 run/day × (16 standings + 15 h2h) = 31
+// requests/day`, well under the 100/day cap.
 const MAX_H2H_FETCHES_PER_RUN = 15;
 const MAX_CANDIDATE_FIXTURES = 150;
 
@@ -21,11 +20,9 @@ const H2H_STALE_MS = 14 * 24 * 60 * 60 * 1000;
 const UNRESOLVED_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface CandidateFixture {
-  tournamentId: string;
-  participant1Id: string;
-  participant2Id: string;
-  participant1Name: string;
-  participant2Name: string;
+  sportKey: string;
+  homeTeam: string;
+  awayTeam: string;
 }
 
 interface ResolvedTeam {
@@ -53,63 +50,62 @@ export async function GET(req: Request) {
   }
 
   const db = getDb();
-  const mappedTournamentIds = watchedTournamentIds().filter((id) => id in LEAGUE_MAP);
+  const mappedSportKeys = watchedSportKeys().filter((key) => key in LEAGUE_MAP);
 
-  const errors: { stage: string; tournamentId?: string; message: string }[] = [];
+  const errors: { stage: string; sportKey?: string; message: string }[] = [];
   let leaguesRefreshed = 0;
   let teamsUpserted = 0;
   let h2hFetched = 0;
 
-  if (mappedTournamentIds.length === 0) {
+  if (mappedSportKeys.length === 0) {
     return Response.json({
       leaguesRefreshed,
       teamsUpserted,
       h2hFetched,
       errors,
-      skipped: "no_mapped_tournaments",
+      skipped: "no_mapped_sport_keys",
     });
   }
 
   try {
     const rows = await db
       .select({
-        tournamentId: oddsCache.tournamentId,
-        participant1Id: oddsCache.participant1Id,
-        participant2Id: oddsCache.participant2Id,
-        participant1Name: oddsCache.participant1Name,
-        participant2Name: oddsCache.participant2Name,
+        sportKey: oddsCache.sportKey,
+        homeTeam: oddsCache.homeTeam,
+        awayTeam: oddsCache.awayTeam,
       })
       .from(oddsCache)
-      .where(inArray(oddsCache.tournamentId, mappedTournamentIds))
-      .orderBy(oddsCache.startTime)
+      .where(inArray(oddsCache.sportKey, mappedSportKeys))
+      .orderBy(oddsCache.commenceTime)
       .limit(MAX_CANDIDATE_FIXTURES);
 
     const candidateFixtures: CandidateFixture[] = rows.filter(
-      (r): r is CandidateFixture =>
-        Boolean(r.tournamentId && r.participant1Id && r.participant2Id && r.participant1Name && r.participant2Name),
+      (r): r is CandidateFixture => Boolean(r.sportKey && r.homeTeam && r.awayTeam),
     );
 
-    // Group participants (id -> name) needing possible resolution, per tournament.
-    const participantsByTournament = new Map<string, Map<string, string>>();
+    // Group team names needing possible resolution, per sport_key. teamKey ->
+    // teamName, since team_id_map is keyed by teamKey (sportKey + slugified name),
+    // not a provider participant id (this odds provider has none).
+    const teamsBySportKey = new Map<string, Map<string, string>>();
     for (const fx of candidateFixtures) {
-      if (!participantsByTournament.has(fx.tournamentId)) participantsByTournament.set(fx.tournamentId, new Map());
-      const byId = participantsByTournament.get(fx.tournamentId)!;
-      byId.set(fx.participant1Id, fx.participant1Name);
-      byId.set(fx.participant2Id, fx.participant2Name);
+      if (!teamsBySportKey.has(fx.sportKey)) teamsBySportKey.set(fx.sportKey, new Map());
+      const byKey = teamsBySportKey.get(fx.sportKey)!;
+      byKey.set(buildTeamKey(fx.sportKey, fx.homeTeam), fx.homeTeam);
+      byKey.set(buildTeamKey(fx.sportKey, fx.awayTeam), fx.awayTeam);
     }
 
-    const allParticipantIds = [...new Set(candidateFixtures.flatMap((f) => [f.participant1Id, f.participant2Id]))];
-    const existingMapRows = allParticipantIds.length
-      ? await db.select().from(teamIdMap).where(inArray(teamIdMap.oddsPapiParticipantId, allParticipantIds))
+    const allTeamKeys = [...teamsBySportKey.values()].flatMap((m) => [...m.keys()]);
+    const existingMapRows = allTeamKeys.length
+      ? await db.select().from(teamIdMap).where(inArray(teamIdMap.teamKey, allTeamKeys))
       : [];
-    const resolvedByParticipant = new Map<string, ResolvedTeam>(
-      existingMapRows.map((r) => [r.oddsPapiParticipantId, { externalTeamId: r.externalTeamId, updatedAt: r.updatedAt }]),
+    const resolvedByTeamKey = new Map<string, ResolvedTeam>(
+      existingMapRows.map((r) => [r.teamKey, { externalTeamId: r.externalTeamId, updatedAt: r.updatedAt }]),
     );
 
     // Refresh every mapped league's full standings — cheap (1 call/league), so no
     // staleness check, just always do it.
-    for (const tournamentId of mappedTournamentIds) {
-      const league = LEAGUE_MAP[tournamentId]!;
+    for (const sportKey of mappedSportKeys) {
+      const league = LEAGUE_MAP[sportKey]!;
       try {
         const standings = await client.getStandings({ leagueId: league.leagueId, season: league.season });
         leaguesRefreshed++;
@@ -158,14 +154,14 @@ export async function GET(req: Request) {
           teamsUpserted++;
         }
 
-        // Resolve any not-yet-resolved (or stale-unresolved) participants for this
-        // tournament against the roster we just pulled — no separate "list teams"
+        // Resolve any not-yet-resolved (or stale-unresolved) team names for this
+        // sport_key against the roster we just pulled — no separate "list teams"
         // call needed, standings already gives us {teamId, name} for everyone.
-        const participants = participantsByTournament.get(tournamentId);
-        if (participants) {
+        const teams = teamsBySportKey.get(sportKey);
+        if (teams) {
           const candidates: NamedTeamCandidate[] = standings.map((s) => ({ teamId: s.teamId, name: s.teamName }));
-          for (const [participantId, name] of participants) {
-            const existing = resolvedByParticipant.get(participantId);
+          for (const [teamKey, name] of teams) {
+            const existing = resolvedByTeamKey.get(teamKey);
             if (existing?.externalTeamId) continue;
             if (existing && !isStale(existing.updatedAt, UNRESOLVED_RETRY_MS)) continue;
 
@@ -173,8 +169,8 @@ export async function GET(req: Request) {
             await db
               .insert(teamIdMap)
               .values({
-                oddsPapiParticipantId: participantId,
-                participantName: name,
+                teamKey,
+                teamName: name,
                 externalTeamId: match?.team.teamId ?? null,
                 matchedTeamName: match?.team.name ?? null,
                 matchStrategy: match ? match.strategy : "unresolved",
@@ -182,7 +178,7 @@ export async function GET(req: Request) {
                 updatedAt: sql`now()`,
               })
               .onConflictDoUpdate({
-                target: teamIdMap.oddsPapiParticipantId,
+                target: teamIdMap.teamKey,
                 set: {
                   externalTeamId: match?.team.teamId ?? null,
                   matchedTeamName: match?.team.name ?? null,
@@ -191,13 +187,13 @@ export async function GET(req: Request) {
                   updatedAt: sql`now()`,
                 },
               });
-            resolvedByParticipant.set(participantId, { externalTeamId: match?.team.teamId ?? null, updatedAt: new Date() });
+            resolvedByTeamKey.set(teamKey, { externalTeamId: match?.team.teamId ?? null, updatedAt: new Date() });
           }
         }
       } catch (err) {
         errors.push({
           stage: "standings",
-          tournamentId,
+          sportKey,
           message: err instanceof HighlightlyError ? err.message : String(err),
         });
       }
@@ -208,8 +204,8 @@ export async function GET(req: Request) {
     for (const fx of candidateFixtures) {
       if (h2hFetched >= MAX_H2H_FETCHES_PER_RUN) break;
 
-      const team1Id = resolvedByParticipant.get(fx.participant1Id)?.externalTeamId;
-      const team2Id = resolvedByParticipant.get(fx.participant2Id)?.externalTeamId;
+      const team1Id = resolvedByTeamKey.get(buildTeamKey(fx.sportKey, fx.homeTeam))?.externalTeamId;
+      const team2Id = resolvedByTeamKey.get(buildTeamKey(fx.sportKey, fx.awayTeam))?.externalTeamId;
       if (!team1Id || !team2Id) continue;
 
       const [teamAId, teamBId] = team1Id < team2Id ? [team1Id, team2Id] : [team2Id, team1Id];

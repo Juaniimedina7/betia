@@ -1,77 +1,44 @@
 import { getDb, sportsCache } from "@bet/db";
-import { getOddsPapiClient, type Sport } from "@bet/oddspapi-client";
-import { sql } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { z } from "zod";
-import { toUserFacingError } from "../user-facing-error";
 
-export const listSportsInput = z.object({
-  activeOnly: z.boolean().optional(),
-});
+export const listSportsInput = z.object({});
 
 export type ListSportsInput = z.infer<typeof listSportsInput>;
 
-// Product scope for now: only these sports, shown with Spanish names. Keyed by
-// OddsPapi's sportId (see GET /v4/sports for the full catalog).
-// Order here is the display order: most popular sport first.
-const SPANISH_SPORT_NAMES: Record<string, string> = {
-  "10": "Fútbol",
-  "11": "Básquet",
-  "12": "Tenis",
-  "26": "Rugby",
+export interface SportGroup {
+  sportId: string; // the sports_cache "group" value (e.g. "Soccer") — used as list_tournaments' input
+  name: string;
+}
+
+// Product scope: every watched league is soccer today (see watched-sport-keys.ts), so
+// this is the only group with anything behind it in odds_cache — showing "Básquet" or
+// "Tenis" here would be a dead end regardless of what's in sports_cache. Expand this
+// once non-soccer leagues are added to the watchlist.
+const SPANISH_GROUP_NAMES: Record<string, string> = {
+  Soccer: "Fútbol",
 };
 
-function localizeSports(sports: Sport[]): Sport[] {
-  return sports
-    .filter((s) => s.sportId in SPANISH_SPORT_NAMES)
-    .map((s) => ({ ...s, name: SPANISH_SPORT_NAMES[s.sportId]! }))
-    .sort(
-      (a, b) =>
-        Object.keys(SPANISH_SPORT_NAMES).indexOf(a.sportId) -
-        Object.keys(SPANISH_SPORT_NAMES).indexOf(b.sportId),
-    );
-}
-
+/**
+ * DB-only read of sports_cache, which /api/ingest/poll refreshes every run — no live
+ * call, no cache-fallback-write (that whole distinction goes away once nothing here is
+ * ever live). Returns the small set of sport "groups" this product actually covers.
+ */
 export async function listSports(_input: ListSportsInput) {
   try {
-    const sports = localizeSports(await getOddsPapiClient().listSports());
-    await cacheSports(sports);
-    return { sports, source: "live" as const, cachedAt: undefined as string | undefined };
-  } catch (liveError) {
-    const cached = await readCachedSports();
-    if (cached.sports.length > 0) {
-      return { ...cached, sports: localizeSports(cached.sports), source: "cache" as const };
-    }
-    throw toUserFacingError(liveError);
-  }
-}
-
-async function cacheSports(sports: Sport[]): Promise<void> {
-  if (sports.length === 0) return;
-  try {
-    await getDb()
-      .insert(sportsCache)
-      .values(sports.map((s) => ({ sportId: s.sportId, name: s.name })))
-      .onConflictDoUpdate({
-        target: sportsCache.sportId,
-        set: { name: sql`excluded.name`, updatedAt: sql`now()` },
-      });
+    const db = getDb();
+    const rows = await db
+      .select({ group: sportsCache.group })
+      .from(sportsCache)
+      .where(inArray(sportsCache.group, Object.keys(SPANISH_GROUP_NAMES)));
+    const groups = [...new Set(rows.map((r) => r.group))];
+    const sports: SportGroup[] = groups
+      .map((group) => ({ sportId: group, name: SPANISH_GROUP_NAMES[group] ?? group }))
+      .sort(
+        (a, b) => Object.keys(SPANISH_GROUP_NAMES).indexOf(a.sportId) - Object.keys(SPANISH_GROUP_NAMES).indexOf(b.sportId),
+      );
+    return { sports, source: "cache" as const };
   } catch {
-    // Best-effort backup — a DB hiccup shouldn't break the live response.
-  }
-}
-
-async function readCachedSports(): Promise<{ sports: Sport[]; cachedAt: string | undefined }> {
-  try {
-    const rows = await getDb().select().from(sportsCache);
-    const cachedAt = rows.reduce<Date | undefined>(
-      (latest, r) => (!latest || r.updatedAt > latest ? r.updatedAt : latest),
-      undefined,
-    );
-    return {
-      sports: rows.map((r) => ({ sportId: r.sportId, name: r.name })),
-      cachedAt: cachedAt?.toISOString(),
-    };
-  } catch {
-    return { sports: [], cachedAt: undefined };
+    return { sports: [] as SportGroup[], source: "cache" as const };
   }
 }

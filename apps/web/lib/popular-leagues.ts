@@ -1,10 +1,10 @@
-import type { Tournament } from "@bet/oddspapi-client";
+import type { TournamentSummary } from "@bet/mcp-tools";
 
 /**
  * Region-aware ranking of competitions. Names are matched case-insensitively by
- * substring against the tournament name, so the exact OddsPapi label doesn't
- * have to be known. Country-specific leagues come first, then the big
- * international competitions. Tune freely — it's a display heuristic, not data.
+ * substring against the tournament name, so the exact provider label doesn't have to
+ * be known. Country-specific leagues come first, then the big international
+ * competitions. Tune freely — it's a display heuristic, not data.
  */
 const GLOBAL_POPULAR = [
   "champions league",
@@ -63,7 +63,7 @@ export function countryName(code?: string): string {
   return COUNTRY_NAMES[code.toUpperCase()] ?? code;
 }
 
-export interface RankedTournament extends Tournament {
+export interface RankedTournament extends TournamentSummary {
   popularRank: number | null; // lower = more popular; null = not featured
   country: string;
 }
@@ -72,8 +72,14 @@ export interface RankedTournament extends Tournament {
  * Ranks tournaments for a viewer's region. Country-specific competitions rank
  * highest, then the global set. Returns everything (with a rank + country
  * label) so the UI can both feature the popular ones and list the rest.
+ *
+ * The Odds API has no country field on a sport (unlike OddsPapi's tournament
+ * categorySlug), so `countryCode` is always undefined post-migration and every
+ * tournament's `country` label falls back to "Internacional" — the country-specific
+ * ranking in POPULAR_BY_COUNTRY above still runs (it matches on name substrings, not
+ * countryCode), but the country *label* itself is a known regression, not a bug.
  */
-export function rankTournaments(tournaments: Tournament[], regionCountry?: string): RankedTournament[] {
+export function rankTournaments(tournaments: TournamentSummary[], regionCountry?: string): RankedTournament[] {
   const region = regionCountry?.toUpperCase();
   const patterns = [...(region ? POPULAR_BY_COUNTRY[region] ?? [] : []), ...GLOBAL_POPULAR];
 

@@ -1,95 +1,69 @@
 import { NextResponse } from "next/server";
 import { estimateMatchProbability } from "@bet/mcp-tools";
-import { getOddsPapiClient, ListFixturesParams } from "@bet/oddspapi-client";
+import { getDb, oddsCache } from "@bet/db";
+import type { BookmakerOdds } from "@bet/odds-api-client";
+import { and, eq, isNotNull } from "drizzle-orm";
 
 export const revalidate = 60;
 
+/**
+ * Pure DB read of odds_cache — no live call. This used to hit OddsPapi directly on
+ * every request (the public landing page fetches this client-side on every anonymous
+ * visit — was the single biggest quota risk in the app); now it never touches the
+ * odds API at all, only /api/ingest/poll does.
+ */
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const tournamentId = searchParams.get("tournamentId") || undefined;
+    // Query param kept as "tournamentId" for URL/caller compatibility — it's actually
+    // a sport_key (e.g. "soccer_epl") under the new provider.
+    const sportKey = searchParams.get("tournamentId") || undefined;
     const teamSearch = searchParams.get("team")?.toLowerCase();
     const limit = parseInt(searchParams.get("limit") || "10", 10);
 
-    const client = getOddsPapiClient();
-    
-    // Si no se pasa tournamentId, buscará partidos globales (la librería internamente limita a 200)
-    const params: ListFixturesParams = {};
-    if (tournamentId) {
-      params.tournamentId = tournamentId;
-    }
+    const db = getDb();
+    const conditions = [isNotNull(oddsCache.bookmakerOdds)];
+    if (sportKey) conditions.push(eq(oddsCache.sportKey, sportKey));
 
-    let fixtures: any[] = [];
-    let attempts = 0;
-    while (attempts < 3) {
-      try {
-        fixtures = await client.listFixtures(params);
-        break; // Éxito
-      } catch (err: any) {
-        if (err.status === 429) {
-          attempts++;
-          await new Promise(r => setTimeout(r, 1000)); // Esperar 1 segundo antes de reintentar
-        } else {
-          throw err;
-        }
-      }
-    }
+    const rows = await db
+      .select()
+      .from(oddsCache)
+      .where(and(...conditions))
+      .orderBy(oddsCache.commenceTime);
 
-    if (fixtures.length === 0 && attempts >= 3) {
-      throw new Error("Rate limit exceeded for listFixtures after retries");
-    }
-    
-    // Filtrar por equipo si se envía el parámetro "team"
-    let filteredMatches = fixtures;
-    if (teamSearch) {
-      filteredMatches = fixtures.filter(
-        (f) =>
-          f.participant1Name?.toLowerCase().includes(teamSearch) ||
-          f.participant2Name?.toLowerCase().includes(teamSearch)
-      );
-    }
+    const filtered = teamSearch
+      ? rows.filter(
+          (r) => r.homeTeam?.toLowerCase().includes(teamSearch) || r.awayTeam?.toLowerCase().includes(teamSearch),
+        )
+      : rows;
 
-    // Tomar el límite establecido
-    const nextMatches = filteredMatches.slice(0, limit);
+    const matches = await Promise.all(
+      filtered.slice(0, limit).map(async (row) => {
+        // DB-only (never a live Highlightly call, see CLAUDE.md's "Highlightly quota"
+        // section). Best-effort: statisticalProbability stays null if there isn't
+        // enough ingested history yet.
+        const statisticalProbability = await estimateMatchProbability({
+          homeTeam: row.homeTeam ?? "",
+          awayTeam: row.awayTeam ?? "",
+          sportKey: row.sportKey,
+        })
+          .then((r) => (r.available ? r.statisticalProbability : null))
+          .catch(() => null);
 
-    // Obtener las cuotas de forma secuencial para no superar el rate limit (1 req/sec) de la capa gratuita
-    const matchesWithOdds = [];
-    for (const match of nextMatches) {
-      // DB-only (never a live Highlightly call, see CLAUDE.md's "Highlightly quota"
-      // section) — safe to run alongside the OddsPapi rate-limit pacing above without
-      // burning any extra external-API budget. Best-effort: statisticalProbability
-      // stays null (not shown) if there isn't enough ingested history yet.
-      const statisticalProbability = await estimateMatchProbability({
-        participant1Id: match.participant1Id,
-        participant2Id: match.participant2Id,
-        tournamentId: match.tournamentId,
-      })
-        .then((r) => (r.available ? r.statisticalProbability : null))
-        .catch(() => null);
-
-      try {
-        const detailedMatch = await client.getOdds(match.fixtureId);
-        // Mezclamos para no perder los nombres de los equipos, ya que /odds a veces no los trae
-        matchesWithOdds.push({
-          ...detailedMatch,
-          participant1Name: match.participant1Name || detailedMatch.participant1Name,
-          participant2Name: match.participant2Name || detailedMatch.participant2Name,
+        return {
+          fixtureId: row.eventId,
+          participant1Name: row.homeTeam,
+          participant2Name: row.awayTeam,
+          startTime: (row.commenceTime ?? row.updatedAt).toISOString(),
+          bookmakerOdds: row.bookmakerOdds as BookmakerOdds,
           statisticalProbability,
-        });
-        // Pequeño delay de 250ms para ayudar a evitar el rate limit 429
-        await new Promise(r => setTimeout(r, 250));
-      } catch (e) {
-        console.error(`Error fetching odds for match ${match.fixtureId}:`, e);
-        matchesWithOdds.push({ ...match, statisticalProbability });
-      }
-    }
+        };
+      }),
+    );
 
-    return NextResponse.json({ success: true, data: matchesWithOdds });
+    return NextResponse.json({ success: true, data: matches });
   } catch (error) {
     console.error("Error in /api/odds:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to fetch odds data" },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to fetch odds data" }, { status: 500 });
   }
 }

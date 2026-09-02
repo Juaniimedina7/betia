@@ -3,15 +3,26 @@ name: Poll odds once a day
 # Vercel Hobby solo permite crons de 1 vez por dia, asi que esto corre desde
 # GitHub Actions en su lugar y pega directo al endpoint de ingesta.
 #
-# OddsPapi factura por cuota MENSUAL (250 requests/mes en el plan actual), no
-# por ventana horaria. /api/ingest/poll ahora pollea 2 bookmakers (Pinnacle +
-# uno mas, para que build_combo pueda calcular edge real desde odds_cache en
-# vez de pegarle en vivo a OddsPapi) — 20 tournamentIds watcheados, en lotes
-# de 5, son ~4 requests/corrida/bookmaker => ~8 requests/corrida. 1 corrida/dia
-# son ~30/mes x 8 = ~240 requests/mes, dejando margen para workflow_dispatch
-# manuales. Bajamos de 2 a 1 corrida/dia para que sumar el segundo bookmaker
-# entre en la cuota — redo this math (runs/day x tournamentIds/5 x bookmakers
-# x 30) antes de subir la cadencia, la lista de torneos o de bookmakers.
+# The Odds API factura por cuota MENSUAL (500 requests/mes en el plan actual —
+# confirmado en vivo el 2026-09-02), y el costo real es 1 credito por MARKET
+# pedido por llamada (no por bookmaker: pedir 2 bookmakers via el parametro
+# `bookmakers` sigue costando 1 credito si se pide 1 solo market). Esto es un
+# modelo de costo distinto al de OddsPapi (que facturaba por llamada HTTP, con
+# lotes de 5 tournamentIds) — no asumas que la formula vieja sigue valiendo.
+#
+# /api/ingest/poll pide 1 market (h2h) x 16 sport_keys watcheados (ver
+# apps/web/lib/ingest/watched-sport-keys.ts) => 16 requests/corrida. A 1
+# corrida/dia son ~30 corridas/mes x 16 = ~480 requests/mes, dejando ~20/mes de
+# margen para workflow_dispatch manuales. El watchlist bajo de 20 a 16 ligas
+# durante la migracion de proveedor: Uruguay y Colombia no existen en The Odds
+# API (chequeado en vivo, no es un bug), y Belgica/Eredivisie se sacaron por
+# presupuesto — redo this math (runs/day x sport_keys x markets x 30) antes de
+# subir la cadencia, la lista de ligas o los markets pedidos.
+#
+# DEFAULT_BOOKMAKERS (apps/web/app/api/ingest/poll/route.ts) tiene 7 casas
+# (pinnacle, unibet, betano_uk, codere_it, betsson, betway, espnbet) — subirlo
+# de 2 a 7 NO cambia el presupuesto de arriba, porque el costo es por market
+# pedido, no por bookmaker.
 on:
   schedule:
     - cron: "0 9 * * *"

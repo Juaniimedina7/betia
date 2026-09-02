@@ -98,7 +98,7 @@ export function PublicLanding() {
         </Reveal>
       </section>
 
-      {/* ---------- OddsPapi Global Matches ---------- */}
+      {/* ---------- Global Matches ---------- */}
       <section className="py-12 border-t border-white/5 bg-[#0a0a0a]">
         <Reveal>
           <MatchesList title="Partidos Destacados Globales" limit={6} />

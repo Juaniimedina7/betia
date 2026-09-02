@@ -1,6 +1,6 @@
 # Setup pendiente
 
-Este proyecto ya tiene el scaffolding completo (web app, cliente OddsPapi, motor de
+Este proyecto ya tiene el scaffolding completo (web app, cliente The Odds API, motor de
 combos, servidor MCP, schema de base de datos). Ver el plan completo en
 `.claude/plans` (o pedirle a Claude que lo recupere) para el diseño detallado.
 
@@ -21,20 +21,20 @@ o "Redeploy" desde el dashboard) para que tome el valor nuevo.
 
 ## Ya hecho
 
-- [x] Repo + monorepo pnpm (`apps/web`, `packages/{oddspapi-client,combo-engine,db,mcp-tools}`)
+- [x] Repo + monorepo pnpm (`apps/web`, `packages/{odds-api-client,combo-engine,db,mcp-tools}`)
 - [x] Proyecto Vercel linkeado (`apps/web/.vercel/project.json`)
 - [x] Neon Postgres provisionado y conectado (`DATABASE_URL` en Vercel)
 - [x] Schema de base de datos pusheado (`users`, `api_tokens`, `bet_slips`, `bet_slip_legs`,
       `sports_cache`, `odds_cache` — estas dos últimas son el respaldo durable de
-      deportes/partidos/cuotas que usan `/odds`, `/odds/[sportId]` y
-      `/fixtures/[fixtureId]` cuando OddsPapi no responde)
+      deportes/partidos/cuotas que leen `/odds`, `/odds/[sportId]` y
+      `/fixtures/[fixtureId]`; sólo `/api/ingest/poll` las escribe, nunca una página o tool)
 - [x] `MCP_INTERNAL_JWT_SECRET` y `CRON_SECRET` generados y guardados en Vercel (dev/preview/prod)
 - [x] `next build` compila y tipa sin errores (falta config real de Clerk para que el
       prerender de `/_not-found` no falle — ver abajo)
-- [x] `ODDSPAPI_API_KEY` cargado en Vercel (dev/preview/prod) y en `apps/web/.env.local`
-- [x] `WATCHED_TOURNAMENT_IDS` seteado con un default razonable (Champions/Europa League,
-      las 5 grandes ligas europeas, Copa Libertadores y Liga Profesional Argentina —
-      ver `apps/web/.env.example` para la lista completa de ids y cómo ajustarla)
+- [x] `ODDSAPI_API_KEY` cargado en Vercel (dev/preview/prod) y en `apps/web/.env.local`
+- [x] `WATCHED_SPORT_KEYS` seteado con un default razonable (16 ligas de fútbol —
+      ver `apps/web/lib/ingest/watched-sport-keys.ts` para la lista completa y por qué
+      Uruguay/Colombia quedaron afuera)
 
 ## Falta (bloqueado en términos de marketplace / claves manuales)
 
@@ -75,31 +75,35 @@ o "Redeploy" desde el dashboard) para que tome el valor nuevo.
 
 ## Notas de diseño a tener presentes
 
-- El WebSocket de OddsPapi requiere plan B2B — por eso la ingesta hoy es polling REST
-  vía cron. Ver `packages/oddspapi-client/src/ingestion/` (interfaz intercambiable).
+- Arquitectura estricta: **API → DB → cache → web**. Sólo `/api/ingest/poll` (el cron)
+  puede llamar a The Odds API en vivo. Ningún tool MCP, página ni el agente de chat
+  llaman a la API en vivo — todos leen `odds_cache`/`sports_cache` (Postgres) o Redis.
+  Esto reemplazó el diseño anterior (varias tools con fallback en vivo) durante la
+  migración de OddsPapi a The Odds API del 2026-09-02, precisamente porque ese patrón
+  agotaba la cuota mensual con tráfico normal de usuarios, no sólo con el cron.
+- `GET /v4/sports/{sport}/odds` de The Odds API devuelve fixtures y las cuotas de todos
+  los bookmakers pedidos en una sola llamada — no hay separación fixtures/odds ni límite
+  de un bookmaker por request como tenía OddsPapi. El costo real es 1 crédito por
+  *market* pedido por llamada (confirmado en vivo), no por HTTP call ni por bookmaker —
+  ver el comment de presupuesto en `.github/workflows/poll-odds.yml` antes de cambiar
+  cadencia, ligas o markets.
 - El agente de IA (`/agent`) nunca calcula cuotas — todo el cálculo determinístico vive
   en `packages/combo-engine`, el LLM solo llama a la tool `build_combo` y narra el
   resultado.
 - El servidor MCP (`apps/web/app/api/mcp/route.ts`) es la única implementación de las
   tools; lo usan tanto clientes MCP externos (Claude Desktop, vía token personal desde
   `/settings/tokens`) como el agente interno (JWT de corta vida).
-- `GET /v4/odds-by-tournaments` de OddsPapi exige exactamente un `bookmaker` por request
-  (rechaza con 400 si falta). El cron de ingesta, `build_combo` y la tool MCP
-  `get_odds_by_tournament` usan `pinnacle` como default (configurable vía
-  `ODDSPAPI_BOOKMAKER` para el cron); ver `GET /v4/bookmakers` para otros slugs.
-- `GET /v4/fixtures` exige `from`/`to` (máximo 10 días de rango) cuando se pide sólo por
-  `sportId` sin `tournamentId`. `OddsPapiClient.listFixtures` pone un default de 3 días y
-  además corta a los 200 partidos más próximos — pedir un deporte entero (ej. fútbol
-  mundial) sin acotar puede devolver miles de fixtures, demasiado para renderizar o para
-  un solo upsert a Postgres.
-- Los campos que devuelve la API real (`sportName`, `tournamentName`, ids numéricos, etc.)
-  no coinciden con los nombres que usa el resto de la app (`name`, ids como string) — la
-  normalización vive toda en `packages/oddspapi-client/src/index.ts` (`normalizeSport`,
-  `normalizeTournament`, `normalizeFixture`); el resto del código nunca ve el shape crudo.
-- `listSports`/`listFixtures`/`getOdds` (en `packages/mcp-tools/src/tools/`) escriben en
-  `sports_cache`/`odds_cache` en cada llamada en vivo exitosa, y leen de esas tablas como
-  fallback si OddsPapi falla — devuelven `source: "cache" | "db-cache"` y `cachedAt` para
-  que la UI avise que está mostrando datos guardados en vez de romper la página. Esas
-  escrituras van con `await` (no fire-and-forget): un `void` ahí se pierde porque Next.js
-  no garantiza que una promesa sin await siga viva después de que el Server Component
-  termine de renderizar.
+- The Odds API no tiene un nivel de "torneo" separado del "deporte": cada `sport_key`
+  (ej. `soccer_epl`) ya identifica una liga completa. `list_sports`/`list_tournaments`
+  mantienen sus nombres de tool por compatibilidad pero ahora significan "grupo"
+  (`Soccer`) y "sport_key dentro de ese grupo" respectivamente — ver
+  `packages/mcp-tools/src/tools/list-sports.ts` y `list-tournaments.ts`.
+- The Odds API tampoco tiene un participant id estable — sólo strings `home_team`/
+  `away_team`. `team_id_map` (para el cruce con Highlightly) está keyeada por
+  `team_key = "${sportKey}:${slug(teamName)}"`, no por un id numérico — ver
+  `packages/mcp-tools/src/team-resolution.ts`.
+- Los campos que devuelve la API real (`sport_key`, `commence_time`, ids en snake_case,
+  bookmakers/markets como arrays) no coinciden con los nombres que usa el resto de la
+  app (camelCase, bookmakers/markets como dict) — la normalización vive toda en
+  `packages/odds-api-client/src/index.ts` (`normalizeSport`, `normalizeEvent`,
+  `normalizeBookmakerOdds`); el resto del código nunca ve el shape crudo.

@@ -1,5 +1,7 @@
-import { estimateMatchProbability, getOdds, listFixtures, listSports, listTournaments, type MarketInfo } from "@bet/mcp-tools";
-import type { BookmakerOdds, Fixture } from "@bet/oddspapi-client";
+import { getDb, oddsCache } from "@bet/db";
+import { estimateMatchProbability } from "@bet/mcp-tools";
+import type { BookmakerOdds } from "@bet/odds-api-client";
+import { and, gte, isNotNull, lte } from "drizzle-orm";
 
 /** A fixture is treated as in-play from kickoff until this long after it. */
 const LIVE_WINDOW_MS = 4 * 60 * 60 * 1000;
@@ -7,24 +9,23 @@ const LIVE_WINDOW_MS = 4 * 60 * 60 * 1000;
 /** How far ahead the board looks. Anything later isn't "hoy". */
 const UPCOMING_WINDOW_MS = 48 * 60 * 60 * 1000;
 
-/** Fixtures pulled per sport before the odds fan-out. Keeps the board mixed. */
-const CANDIDATES_PER_SPORT = 4;
-
-/** Hard cap on concurrent getOdds calls — each one may miss Redis and go live. */
-const CANDIDATE_LIMIT = 12;
+/** Fixtures pulled per sport_key before picking the best-edge ones. Keeps the board mixed. */
+const CANDIDATES_PER_SPORT_KEY = 4;
 
 const MAX_EVENTS = 6;
 
-/**
- * Each supported sport's main "who wins" market. Same list `live-odds-table.tsx`
- * floats to the top of the odds board.
- */
-const PRIORITY_MARKET_IDS = ["101", "111", "121", "261"];
+/** Same list `live-odds-table.tsx` floats to the top of the odds board. */
+const PRIORITY_MARKET_IDS = ["h2h", "spreads", "totals"];
 
 const PINNACLE_KEYS = ["pinnacle", "pinnacle.com"];
 
+// Product scope: every watched league is soccer today — see watched-sport-keys.ts and
+// list-sports.ts's SPANISH_GROUP_NAMES. No group column lives on odds_cache itself, so
+// this is hardcoded rather than queried; revisit once non-soccer leagues are ingested.
+const SPORT_NAME = "Fútbol";
+
 export interface FeaturedPick {
-  /** Human-readable selection from the market catalog, e.g. "Boca Juniors" / "Empate". */
+  /** Human-readable selection — the outcome name (a team name, "Empate", "Más de 2.5", etc). */
   label: string;
   price: number;
   edgePct: number;
@@ -62,15 +63,12 @@ export interface FeaturedEvent {
 
 export interface FeaturedEventsResult {
   events: FeaturedEvent[];
-  /** "cache" when any leg of the pipeline fell back to stored data — the flag `/odds/[sportId]` also shows. */
-  source: "live" | "cache";
-  cachedAt: string | undefined;
   error: string | null;
 }
 
 interface Selection {
-  outcomeId: string;
-  playerIdx: string;
+  outcomeName: string;
+  point?: number;
   /** Best price across every bookmaker quoting it. */
   price: number;
   /** Sharp/consensus price used as the fair-value reference. */
@@ -79,141 +77,99 @@ interface Selection {
 }
 
 /**
- * Featured fixtures for the logged-in dashboard, fetched the way the odds pages
- * do it: `listSports` for the in-scope sports, `listFixtures` per sport for
- * what's playable in the window, then `getOdds` per candidate — each of those
- * already falls back live → Redis → Postgres on its own, so the board degrades
- * instead of failing. Never throws; the dashboard renders its own empty state.
+ * Featured fixtures for the logged-in dashboard — a single DB read of odds_cache
+ * (populated by /api/ingest/poll; never a live call here or anywhere else in the web
+ * app). Never throws; the dashboard renders its own empty state.
  */
 export async function getFeaturedEvents(): Promise<FeaturedEventsResult> {
-  let source: "live" | "cache" = "live";
-  let cachedAt: string | undefined;
-
-  const noteSource = (s: string, at: string | undefined) => {
-    if (s === "live" || s === "redis") return;
-    source = "cache";
-    // Surface the stalest timestamp we saw — that's the real age of the board.
-    if (at && (!cachedAt || at < cachedAt)) cachedAt = at;
-  };
-
   try {
-    const sportsResult = await listSports({});
-    noteSource(sportsResult.source, sportsResult.cachedAt);
-    const sportNames = new Map(sportsResult.sports.map((s) => [s.sportId, s.name]));
-
     const now = Date.now();
     // Reach back before kickoff so in-play matches reach the "En vivo" tab, and
     // only as far forward as the board claims to cover.
-    const from = new Date(now - LIVE_WINDOW_MS).toISOString();
-    const to = new Date(now + UPCOMING_WINDOW_MS).toISOString();
+    const from = new Date(now - LIVE_WINDOW_MS);
+    const to = new Date(now + UPCOMING_WINDOW_MS);
 
-    // Wait after listSports before starting listFixtures
-    await new Promise(r => setTimeout(r, 1500));
+    const rows = await getDb()
+      .select()
+      .from(oddsCache)
+      .where(and(isNotNull(oddsCache.bookmakerOdds), gte(oddsCache.commenceTime, from), lte(oddsCache.commenceTime, to)))
+      .orderBy(oddsCache.commenceTime);
 
-    const perSport = [];
-    for (const sport of sportsResult.sports) {
-      try {
-        const result = await listFixtures({ sportId: sport.sportId, from, to });
-        noteSource(result.source, result.cachedAt);
-        perSport.push(result.fixtures.slice(0, CANDIDATES_PER_SPORT));
-      } catch {
-        perSport.push([]);
-      }
-      // Free tier rate limit is 1 req/sec, wait a bit
-      await new Promise(r => setTimeout(r, 1500));
+    // Round-robin across sport_keys so one big league doesn't crowd everything out.
+    const bySportKey = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const bucket = bySportKey.get(row.sportKey) ?? [];
+      if (bucket.length < CANDIDATES_PER_SPORT_KEY) bucket.push(row);
+      bySportKey.set(row.sportKey, bucket);
     }
-
-    // Round-robin across sports so soccer's volume doesn't crowd everything out.
-    const candidates: Fixture[] = [];
-    for (let i = 0; i < CANDIDATES_PER_SPORT; i++) {
-      for (const fixtures of perSport) {
-        const fixture = fixtures[i];
-        if (fixture) candidates.push(fixture);
+    const candidates: typeof rows = [];
+    for (let i = 0; i < CANDIDATES_PER_SPORT_KEY; i++) {
+      for (const bucket of bySportKey.values()) {
+        const row = bucket[i];
+        if (row) candidates.push(row);
       }
-    }
-
-    const priced = [];
-    for (const fixture of candidates.slice(0, CANDIDATE_LIMIT)) {
-      try {
-        const odds = await getOdds({ fixtureId: fixture.fixtureId });
-        if (odds.source === "db-cache") noteSource(odds.source, odds.cachedAt);
-        priced.push({
-          fixture,
-          matchup: odds.matchup,
-          bookmakerOdds: odds.bookmakerOdds,
-          catalog: odds.marketCatalog,
-        });
-      } catch {
-        priced.push(null);
-      }
-      await new Promise(r => setTimeout(r, 1500));
     }
 
     const events: FeaturedEvent[] = [];
-    // fixtureId -> participant ids, kept alongside `events` so the (optional)
+    // fixtureId -> {homeTeam, awayTeam, sportKey}, kept alongside `events` so the
     // statistical-probability decoration pass below doesn't need to re-derive them.
-    const participantsByFixture = new Map<string, { participant1Id: string; participant2Id: string }>();
-    for (const entry of priced) {
-      if (!entry) continue;
-      const { fixture, matchup, bookmakerOdds, catalog } = entry;
+    const teamsByFixture = new Map<string, { homeTeam: string; awayTeam: string; sportKey: string }>();
 
-      const headline = headlineMarket(bookmakerOdds);
+    for (const row of candidates) {
+      const bookmakerOdds = (row.bookmakerOdds as BookmakerOdds) ?? {};
+      const headline = headlineMarket(bookmakerOdds, row.homeTeam ?? undefined, row.awayTeam ?? undefined);
       if (!headline) continue;
 
       const bestEdge = Math.max(...headline.selections.map((s) => s.edgePct));
-      const kickoff = new Date(fixture.startTime).getTime();
+      const kickoff = (row.commenceTime ?? row.updatedAt).getTime();
 
       events.push({
-        fixtureId: fixture.fixtureId,
-        sportId: fixture.sportId,
-        sportName: sportNames.get(fixture.sportId) ?? fixture.sportId,
-        tournamentId: fixture.tournamentId,
-        tournamentName: sportNames.get(fixture.sportId) ?? fixture.sportId,
-        participant1: fixture.participant1Name ?? matchup?.participant1Name ?? fixture.participant1Id,
-        participant2: fixture.participant2Name ?? matchup?.participant2Name ?? fixture.participant2Id,
-        startTime: fixture.startTime,
+        fixtureId: row.eventId,
+        sportId: row.sportKey,
+        sportName: SPORT_NAME,
+        tournamentId: row.sportKey,
+        tournamentName: row.sportTitle ?? row.sportKey,
+        participant1: row.homeTeam ?? "?",
+        participant2: row.awayTeam ?? "?",
+        startTime: (row.commenceTime ?? row.updatedAt).toISOString(),
         live: kickoff <= now && now - kickoff < LIVE_WINDOW_MS,
         edgePct: bestEdge,
         picks: headline.selections.map((selection) => ({
-          label: selectionLabel(headline.marketId, selection, headline.selections.length, catalog),
+          label: selectionLabel(selection),
           price: selection.price,
           edgePct: selection.edgePct,
           best: selection.edgePct === bestEdge,
         })),
         statisticalProbability: null,
       });
-      participantsByFixture.set(fixture.fixtureId, {
-        participant1Id: fixture.participant1Id,
-        participant2Id: fixture.participant2Id,
-      });
+      if (row.homeTeam && row.awayTeam) {
+        teamsByFixture.set(row.eventId, { homeTeam: row.homeTeam, awayTeam: row.awayTeam, sportKey: row.sportKey });
+      }
     }
 
     events.sort((a, b) => b.edgePct - a.edgePct);
     const top = events.slice(0, MAX_EVENTS);
 
-    await Promise.all([decorateTournaments(top), decorateStatisticalProbability(top, participantsByFixture)]);
-    return { events: top, source, cachedAt, error: null };
+    await decorateStatisticalProbability(top, teamsByFixture);
+    return { events: top, error: null };
   } catch (e) {
     return {
       events: [],
-      source,
-      cachedAt,
       error: e instanceof Error ? e.message : "No se pudieron cargar los partidos",
     };
   }
 }
 
 /**
- * Prices one fixture's markets and returns the headline one: the sport's main
- * "who wins" market when it's quoted, else the fullest complete book.
- *
- * The edge math lives here rather than in `@bet/combo-engine` because that
- * package de-vigs across the *players* inside a single outcome, while OddsPapi
- * models each selection as its own `outcomeId` with a lone player "0" — see the
- * market catalog, whose outcome names are "1" / "X" / "2" / "Over" / "Under".
+ * Prices one event's markets and returns the headline one: the sport's main
+ * "who wins" market when it's quoted, else the fullest complete book. For h2h, the
+ * outcome name already IS the display label (a team name, or "Draw") — no catalog
+ * lookup needed, unlike OddsPapi where outcomes were opaque ids.
  */
 function headlineMarket(
   bookmakerOdds: BookmakerOdds,
+  homeTeam: string | undefined,
+  awayTeam: string | undefined,
 ): { marketId: string; selections: Selection[] } | null {
   const books = Object.entries(bookmakerOdds ?? {});
   if (books.length === 0) return null;
@@ -221,21 +177,19 @@ function headlineMarket(
   const pinnacleKey = Object.keys(bookmakerOdds).find((k) => PINNACLE_KEYS.includes(k.toLowerCase()));
 
   // marketId -> selection key -> prices quoted by each bookmaker
-  const quotes = new Map<string, Map<string, { prices: number[]; pinnacle?: number }>>();
+  const quotes = new Map<string, Map<string, { outcomeName: string; point?: number; prices: number[]; pinnacle?: number }>>();
 
   for (const [bookmaker, book] of books) {
     for (const [marketId, market] of Object.entries(book.markets ?? {})) {
-      for (const [outcomeId, outcome] of Object.entries(market.outcomes)) {
-        for (const [playerIdx, player] of Object.entries(outcome.players)) {
-          if (player.active === false || player.price <= 1 || (player.limit ?? 1) <= 0) continue;
-          const byMarket = quotes.get(marketId) ?? new Map();
-          quotes.set(marketId, byMarket);
-          const key = `${outcomeId}::${playerIdx}`;
-          const entry = byMarket.get(key) ?? { prices: [] };
-          entry.prices.push(player.price);
-          if (bookmaker === pinnacleKey) entry.pinnacle = player.price;
-          byMarket.set(key, entry);
-        }
+      for (const outcome of market.outcomes) {
+        if (outcome.price <= 1) continue;
+        const byMarket = quotes.get(marketId) ?? new Map();
+        quotes.set(marketId, byMarket);
+        const key = `${outcome.name}|${outcome.point ?? ""}`;
+        const entry = byMarket.get(key) ?? { outcomeName: outcome.name, point: outcome.point, prices: [] };
+        entry.prices.push(outcome.price);
+        if (bookmaker === pinnacleKey) entry.pinnacle = outcome.price;
+        byMarket.set(key, entry);
       }
     }
   }
@@ -244,22 +198,15 @@ function headlineMarket(
 
   for (const [marketId, byKey] of quotes) {
     // Only a complete two- or three-way book normalizes to a meaningful 100%.
-    // Anything else (props, multi-line totals sharing an id) can't be de-vigged.
     if (byKey.size !== 2 && byKey.size !== 3) continue;
 
-    const rows = [...byKey.entries()].map(([key, entry]) => {
-      const [outcomeId, playerIdx] = key.split("::") as [string, string];
-      return {
-        outcomeId,
-        playerIdx,
-        price: Math.max(...entry.prices),
-        referencePrice: entry.pinnacle ?? median(entry.prices),
-      };
-    });
+    const rows = [...byKey.values()].map((entry) => ({
+      outcomeName: entry.outcomeName,
+      point: entry.point,
+      price: Math.max(...entry.prices),
+      referencePrice: entry.pinnacle ?? median(entry.prices),
+    }));
 
-    // Multiplicative de-vig across the market's selections: strip the book's
-    // margin so the implied probabilities sum to 1, then compare the best
-    // available price against that fair probability.
     const overround = rows.reduce((sum, r) => sum + 1 / r.referencePrice, 0);
     if (overround <= 0) continue;
 
@@ -270,7 +217,7 @@ function headlineMarket(
           const fairProbability = 1 / r.referencePrice / overround;
           return { ...r, edgePct: (r.price * fairProbability - 1) * 100 };
         })
-        .sort((a, b) => Number(a.outcomeId) - Number(b.outcomeId)),
+        .sort((a, b) => outcomeOrder(a.outcomeName, homeTeam, awayTeam) - outcomeOrder(b.outcomeName, homeTeam, awayTeam)),
     });
   }
 
@@ -280,9 +227,16 @@ function headlineMarket(
     const ai = PRIORITY_MARKET_IDS.indexOf(a.marketId);
     const bi = PRIORITY_MARKET_IDS.indexOf(b.marketId);
     if (ai !== bi) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
-    if (a.selections.length !== b.selections.length) return b.selections.length - a.selections.length;
-    return Number(a.marketId) - Number(b.marketId);
+    return b.selections.length - a.selections.length;
   })[0]!;
+}
+
+/** Home team first, Draw in the middle, away team last — falls back to source order. */
+function outcomeOrder(name: string, homeTeam: string | undefined, awayTeam: string | undefined): number {
+  if (name === homeTeam) return 0;
+  if (name === "Draw") return 1;
+  if (name === awayTeam) return 2;
+  return 3;
 }
 
 function median(values: number[]): number {
@@ -291,45 +245,10 @@ function median(values: number[]): number {
   return sorted.length % 2 === 0 ? ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2 : (sorted[mid] ?? 0);
 }
 
-/**
- * Real outcome name from the market catalog ("Boca Juniors", "Empate", "Más de"),
- * falling back to the positional 1/X/2 when the catalog hasn't been seeded for
- * this market yet. Mirrors `live-odds-table.tsx`'s label rule.
- */
-function selectionLabel(
-  marketId: string,
-  selection: Selection,
-  count: number,
-  catalog: Record<string, MarketInfo>,
-): string {
-  const fromCatalog = catalog[marketId]?.outcomes[selection.outcomeId];
-  const base =
-    fromCatalog ??
-    (count === 3
-      ? ({ "1": "1", "2": "X", "3": "2" }[selection.outcomeId] ?? selection.outcomeId)
-      : selection.outcomeId);
-  return selection.playerIdx === "0" ? base : `${base} (${selection.playerIdx})`;
-}
-
-/** Resolves tournament ids to names. Best-effort: the sport name stays on failure. */
-async function decorateTournaments(events: FeaturedEvent[]): Promise<void> {
-  if (events.length === 0) return;
-
-  try {
-    const sportIds = [...new Set(events.map((e) => e.sportId))];
-    const lists = await Promise.all(
-      sportIds.map((sportId) => listTournaments({ sportId }).catch(() => ({ tournaments: [] }))),
-    );
-    const names = new Map(
-      lists.flatMap(({ tournaments }) => tournaments.map((t) => [t.tournamentId, t.name] as const)),
-    );
-
-    for (const event of events) {
-      event.tournamentName = names.get(event.tournamentId) ?? event.tournamentName;
-    }
-  } catch {
-    // Names are cosmetic — the sport name already reads fine.
-  }
+function selectionLabel(selection: Selection): string {
+  if (selection.outcomeName === "Draw") return "Empate";
+  if (selection.point === undefined) return selection.outcomeName;
+  return `${selection.outcomeName} (${selection.point > 0 ? "+" : ""}${selection.point})`;
 }
 
 /**
@@ -341,17 +260,17 @@ async function decorateTournaments(events: FeaturedEvent[]): Promise<void> {
  */
 async function decorateStatisticalProbability(
   events: FeaturedEvent[],
-  participantsByFixture: Map<string, { participant1Id: string; participant2Id: string }>,
+  teamsByFixture: Map<string, { homeTeam: string; awayTeam: string; sportKey: string }>,
 ): Promise<void> {
   await Promise.all(
     events.map(async (event) => {
-      const participants = participantsByFixture.get(event.fixtureId);
-      if (!participants) return;
+      const teams = teamsByFixture.get(event.fixtureId);
+      if (!teams) return;
       try {
         const result = await estimateMatchProbability({
-          participant1Id: participants.participant1Id,
-          participant2Id: participants.participant2Id,
-          tournamentId: event.tournamentId,
+          homeTeam: teams.homeTeam,
+          awayTeam: teams.awayTeam,
+          sportKey: teams.sportKey,
         });
         if (result.available) {
           event.statisticalProbability = result.statisticalProbability;

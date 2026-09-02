@@ -1,4 +1,4 @@
-// Pragmatic name matching for resolving an OddsPapi participant name to an external
+// Pragmatic name matching for resolving an odds-provider team name to an external
 // (Highlightly) team within one league+season roster (never a global search, so
 // cross-league ambiguity — e.g. two clubs both named "River" in different
 // countries — is essentially eliminated by construction). Exact-normalized match

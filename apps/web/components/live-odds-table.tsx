@@ -1,24 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { BookmakerOdds } from "@bet/oddspapi-client";
-
-interface MarketInfo {
-  label: string;
-  outcomes: Record<string, string>;
-}
+import type { BookmakerOdds } from "@bet/odds-api-client";
 
 // Each supported sport's main "who wins" market always floats to the top of the board.
-const PRIORITY_MARKET_IDS = ["101", "111", "121", "261"];
+const PRIORITY_MARKET_IDS = ["h2h", "spreads", "totals"];
+
+const outcomeKey = (name: string, point: number | undefined) => `${name}|${point ?? ""}`;
 
 export function LiveOddsTable({
   fixtureId,
   initialOdds,
-  marketCatalog = {},
 }: {
   fixtureId: string;
   initialOdds: BookmakerOdds;
-  marketCatalog?: Record<string, MarketInfo>;
 }) {
   const [odds, setOdds] = useState<BookmakerOdds>(initialOdds);
   const [connected, setConnected] = useState(false);
@@ -37,23 +32,18 @@ export function LiveOddsTable({
 
   const { markets, bookmakers, bestPrices, activeMarketData, totalRows } = useMemo(() => {
     const bookmakerSet = new Set<string>();
-    const marketMap = new Map<string, { label: string; outcomes: Set<string> }>();
-    
+    const marketMap = new Map<string, { label: string; outcomes: Map<string, number | undefined> }>();
+
     // First pass: collect all bookmakers, markets, and outcomes
     for (const [bookmaker, book] of Object.entries(odds)) {
       bookmakerSet.add(bookmaker);
       for (const [marketId, market] of Object.entries(book?.markets ?? {})) {
         if (!marketMap.has(marketId)) {
-          marketMap.set(marketId, {
-            label: marketCatalog[marketId]?.label ?? `Mercado ${marketId}`,
-            outcomes: new Set(),
-          });
+          marketMap.set(marketId, { label: marketLabel(marketId), outcomes: new Map() });
         }
         const m = marketMap.get(marketId)!;
-        for (const outcomeId of Object.keys(market.outcomes)) {
-          for (const playerIdx of Object.keys(market.outcomes[outcomeId]?.players ?? {})) {
-            m.outcomes.add(`${outcomeId}|${playerIdx}`);
-          }
+        for (const outcome of market.outcomes ?? []) {
+          m.outcomes.set(outcomeKey(outcome.name, outcome.point), outcome.point);
         }
       }
     }
@@ -66,7 +56,7 @@ export function LiveOddsTable({
     });
 
     const markets = Array.from(marketMap.entries())
-      .map(([id, data]) => ({ id, label: data.label, outcomes: Array.from(data.outcomes) }))
+      .map(([id, data]) => ({ id, label: data.label, outcomes: Array.from(data.outcomes.keys()) }))
       .sort((a, b) => {
         const ai = PRIORITY_MARKET_IDS.indexOf(a.id);
         const bi = PRIORITY_MARKET_IDS.indexOf(b.id);
@@ -77,22 +67,18 @@ export function LiveOddsTable({
     // Calculate best prices for the active market
     const currentMarketId = activeMarketId ?? markets[0]?.id;
     const bestPrices = new Map<string, number>();
-    
+
     let activeMarketData = null;
     if (currentMarketId) {
-      activeMarketData = markets.find(m => m.id === currentMarketId);
+      activeMarketData = markets.find((m) => m.id === currentMarketId);
       if (activeMarketData) {
-        for (const outcomeStr of activeMarketData.outcomes) {
-          const [outcomeId, playerIdx] = outcomeStr.split("|");
+        for (const key of activeMarketData.outcomes) {
           let best = 0;
           for (const bm of bookmakers) {
-            const price = odds[bm]?.markets[currentMarketId]?.outcomes[outcomeId]?.players[playerIdx]?.price;
-            const active = odds[bm]?.markets[currentMarketId]?.outcomes[outcomeId]?.players[playerIdx]?.active;
-            if (price && active !== false && price > best) {
-              best = price;
-            }
+            const outcome = odds[bm]?.markets[currentMarketId]?.outcomes.find((o) => outcomeKey(o.name, o.point) === key);
+            if (outcome && outcome.price > best) best = outcome.price;
           }
-          if (best > 0) bestPrices.set(outcomeStr, best);
+          if (best > 0) bestPrices.set(key, best);
         }
       }
     }
@@ -100,14 +86,12 @@ export function LiveOddsTable({
     let totalRowsCount = 0;
     for (const bm of Object.keys(odds)) {
       for (const mId of Object.keys(odds[bm]?.markets ?? {})) {
-        for (const oId of Object.keys(odds[bm]?.markets[mId]?.outcomes ?? {})) {
-          totalRowsCount += Object.keys(odds[bm]?.markets[mId]?.outcomes[oId]?.players ?? {}).length;
-        }
+        totalRowsCount += odds[bm]?.markets[mId]?.outcomes.length ?? 0;
       }
     }
 
     return { markets, bookmakers, bestPrices, activeMarketData, totalRows: totalRowsCount };
-  }, [odds, marketCatalog, activeMarketId]);
+  }, [odds, activeMarketId]);
 
   // Sync active market if it's null
   useEffect(() => {
@@ -116,10 +100,12 @@ export function LiveOddsTable({
     }
   }, [markets, activeMarketId]);
 
-  const outcomeLabel = (marketId: string, outcomeStr: string) => {
-    const [outcomeId, playerIdx] = outcomeStr.split("|");
-    const label = marketCatalog[marketId]?.outcomes[outcomeId] ?? outcomeId;
-    return playerIdx === "0" ? label : `${label} (${playerIdx})`;
+  const outcomeLabel = (key: string) => {
+    const [name, pointStr] = key.split("|");
+    if (name === "Draw") return "Empate";
+    if (!pointStr) return name;
+    const point = Number(pointStr);
+    return `${name} (${point > 0 ? "+" : ""}${point})`;
   };
 
   return (
@@ -185,37 +171,36 @@ export function LiveOddsTable({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--line)]">
-                  {activeMarketData.outcomes.map((outcomeStr) => {
-                    const [outcomeId, playerIdx] = outcomeStr.split("|");
-                    return (
-                      <tr key={outcomeStr} className="transition-colors hover:bg-white/[0.02]">
-                        <td className="sticky left-0 z-10 bg-[var(--color-bg)] px-5 py-3 font-medium text-[var(--color-ink)] shadow-[1px_0_0_0_var(--line)] whitespace-nowrap">
-                          {outcomeLabel(activeMarketData!.id, outcomeStr)}
-                        </td>
-                        {bookmakers.map((bm) => {
-                          const player = odds[bm]?.markets[activeMarketData!.id]?.outcomes[outcomeId]?.players[playerIdx];
-                          const price = player?.active === false ? null : player?.price;
-                          const isBest = price !== undefined && price !== null && bestPrices.get(outcomeStr) === price;
+                  {activeMarketData.outcomes.map((key) => (
+                    <tr key={key} className="transition-colors hover:bg-white/[0.02]">
+                      <td className="sticky left-0 z-10 bg-[var(--color-bg)] px-5 py-3 font-medium text-[var(--color-ink)] shadow-[1px_0_0_0_var(--line)] whitespace-nowrap">
+                        {outcomeLabel(key)}
+                      </td>
+                      {bookmakers.map((bm) => {
+                        const outcome = odds[bm]?.markets[activeMarketData!.id]?.outcomes.find(
+                          (o) => outcomeKey(o.name, o.point) === key,
+                        );
+                        const price = outcome?.price;
+                        const isBest = price !== undefined && bestPrices.get(key) === price;
 
-                          return (
-                            <td key={bm} className="px-5 py-3 text-center">
-                              {price === undefined || price === null ? (
-                                <span className="text-[var(--color-ink-faint)]">—</span>
-                              ) : (
-                                <span
-                                  className="tnum inline-flex items-center gap-1 font-semibold"
-                                  style={{ color: isBest ? "var(--color-edge)" : "var(--color-ink)" }}
-                                >
-                                  {isBest && <span aria-hidden className="text-[10px]">▲</span>}
-                                  {price.toFixed(2)}
-                                </span>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
+                        return (
+                          <td key={bm} className="px-5 py-3 text-center">
+                            {price === undefined ? (
+                              <span className="text-[var(--color-ink-faint)]">—</span>
+                            ) : (
+                              <span
+                                className="tnum inline-flex items-center gap-1 font-semibold"
+                                style={{ color: isBest ? "var(--color-edge)" : "var(--color-ink)" }}
+                              >
+                                {isBest && <span aria-hidden className="text-[10px]">▲</span>}
+                                {price.toFixed(2)}
+                              </span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -229,4 +214,9 @@ export function LiveOddsTable({
       </p>
     </div>
   );
+}
+
+function marketLabel(marketId: string): string {
+  const labels: Record<string, string> = { h2h: "Ganador del partido", spreads: "Hándicap", totals: "Más/menos" };
+  return labels[marketId] ?? marketId;
 }

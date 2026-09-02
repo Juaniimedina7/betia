@@ -1,144 +1,149 @@
-import type { Fixture, Outcome, OutcomePlayer } from "@bet/oddspapi-client";
+import type { BookmakerOdds, Event, OutcomeQuote } from "@bet/odds-api-client";
 import type { CandidateLeg } from "./types";
 
 const PINNACLE_KEYS = ["pinnacle", "pinnacle.com"];
 
-function isUsable(player: OutcomePlayer | undefined): player is OutcomePlayer {
-  return !!player && player.active !== false && player.price > 1 && (player.limit ?? 1) > 0;
+function isUsable(outcome: OutcomeQuote | undefined): outcome is OutcomeQuote {
+  return !!outcome && outcome.price > 1;
+}
+
+/** Composite key so a market that ever carries multiple lines for the same outcome
+ * name (e.g. alternate totals) doesn't collide in the per-outcome price maps below. */
+function outcomeKey(outcome: OutcomeQuote): string {
+  return `${outcome.name}|${outcome.point ?? ""}`;
 }
 
 /**
- * Reference price per player selection within one outcome: Pinnacle's price if
- * it quotes this outcome (sharp book, low vig), otherwise the median price
- * across all bookmakers quoting that player. Returns null for players nobody
- * prices (can't build a fair reference).
+ * Reference price per outcome within one market: Pinnacle's price if it quotes this
+ * market (sharp book, low vig), otherwise the median price across all bookmakers
+ * quoting that outcome. Returns an empty map for outcomes nobody prices (can't build
+ * a fair reference).
  */
-function referencePrices(
-  bookmakerOdds: Fixture["bookmakerOdds"],
-  marketId: string,
-  outcomeId: string,
-): Record<string, number> {
-  if (!bookmakerOdds) return {};
+function referencePrices(bookmakerOdds: BookmakerOdds, marketId: string): Record<string, number> {
+  const pinnacleKey = Object.keys(bookmakerOdds).find((k) => PINNACLE_KEYS.includes(k.toLowerCase()));
+  const pinnacleMarket = pinnacleKey ? bookmakerOdds[pinnacleKey]?.markets[marketId] : undefined;
 
-  const pinnacleKey = Object.keys(bookmakerOdds).find((k) =>
-    PINNACLE_KEYS.includes(k.toLowerCase()),
-  );
-  const pinnacleOutcome = pinnacleKey
-    ? bookmakerOdds[pinnacleKey]?.markets[marketId]?.outcomes[outcomeId]
-    : undefined;
-
-  if (pinnacleOutcome) {
+  if (pinnacleMarket) {
     const prices: Record<string, number> = {};
-    for (const [playerIdx, player] of Object.entries(pinnacleOutcome.players)) {
-      if (isUsable(player)) prices[playerIdx] = player.price;
+    for (const outcome of pinnacleMarket.outcomes) {
+      if (isUsable(outcome)) prices[outcomeKey(outcome)] = outcome.price;
     }
     if (Object.keys(prices).length > 0) return prices;
   }
 
-  // Fallback: median price per player across all bookmakers offering this outcome.
-  const byPlayer: Record<string, number[]> = {};
+  // Fallback: median price per outcome across all bookmakers offering this market.
+  const byOutcome: Record<string, number[]> = {};
   for (const book of Object.values(bookmakerOdds)) {
-    const outcome: Outcome | undefined = book.markets[marketId]?.outcomes[outcomeId];
-    if (!outcome) continue;
-    for (const [playerIdx, player] of Object.entries(outcome.players)) {
-      if (!isUsable(player)) continue;
-      (byPlayer[playerIdx] ??= []).push(player.price);
+    const market = book.markets[marketId];
+    if (!market) continue;
+    for (const outcome of market.outcomes) {
+      if (!isUsable(outcome)) continue;
+      (byOutcome[outcomeKey(outcome)] ??= []).push(outcome.price);
     }
   }
 
   const medians: Record<string, number> = {};
-  for (const [playerIdx, prices] of Object.entries(byPlayer)) {
+  for (const [key, prices] of Object.entries(byOutcome)) {
     const sorted = [...prices].sort((a, b) => a - b);
     const mid = Math.floor(sorted.length / 2);
-    medians[playerIdx] =
-      sorted.length % 2 === 0 ? ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2 : (sorted[mid] ?? 0);
+    medians[key] = sorted.length % 2 === 0 ? ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2 : (sorted[mid] ?? 0);
   }
   return medians;
 }
 
 /** Multiplicative de-vig: normalizes implied probabilities so they sum to 1. */
 function deVig(prices: Record<string, number>): Record<string, number> {
-  const implied = Object.entries(prices).map(([playerIdx, price]) => [playerIdx, 1 / price] as const);
+  const implied = Object.entries(prices).map(([key, price]) => [key, 1 / price] as const);
   const overround = implied.reduce((sum, [, p]) => sum + p, 0);
   if (overround <= 0) return {};
-  return Object.fromEntries(implied.map(([playerIdx, p]) => [playerIdx, p / overround]));
+  return Object.fromEntries(implied.map(([key, p]) => [key, p / overround]));
 }
 
-/** Best (highest) active price for a specific player selection, across all bookmakers. */
+/**
+ * Best (highest) usable price for a specific outcome. Across all bookmakers by
+ * default; restricted to a single one when `bookmakerFilter` is given (case-
+ * insensitive key match) — used to force every leg onto one specific book instead of
+ * shopping for the best price across the whole cached pool.
+ */
 function bestPrice(
-  bookmakerOdds: Fixture["bookmakerOdds"],
+  bookmakerOdds: BookmakerOdds,
   marketId: string,
-  outcomeId: string,
-  playerIdx: string,
-): { bookmaker: string; price: number } | undefined {
-  if (!bookmakerOdds) return undefined;
-  let best: { bookmaker: string; price: number } | undefined;
+  key: string,
+  bookmakerFilter?: string,
+): { bookmaker: string; outcome: OutcomeQuote } | undefined {
+  let best: { bookmaker: string; outcome: OutcomeQuote } | undefined;
   for (const [bookmaker, book] of Object.entries(bookmakerOdds)) {
-    const player = book.markets[marketId]?.outcomes[outcomeId]?.players[playerIdx];
-    if (!isUsable(player)) continue;
-    if (!best || player.price > best.price) {
-      best = { bookmaker, price: player.price };
+    if (bookmakerFilter && bookmaker.toLowerCase() !== bookmakerFilter.toLowerCase()) continue;
+    const outcome = book.markets[marketId]?.outcomes.find((o) => isUsable(o) && outcomeKey(o) === key);
+    if (!outcome) continue;
+    if (!best || outcome.price > best.outcome.price) {
+      best = { bookmaker, outcome };
     }
   }
   return best;
 }
 
+export interface ExtractCandidateLegsOptions {
+  /**
+   * Restrict the *bettable* price/outcome of every leg to this one bookmaker (case-
+   * insensitive) — e.g. "the user wants every pick to be from bet365". The fair-price
+   * reference (Pinnacle-or-median across the full cached pool) is NOT restricted, so
+   * edge still reflects that book's price against the real sharp/consensus line, not
+   * a self-devigged comparison against its own market. An event/market with no price
+   * from this bookmaker is simply not a candidate.
+   */
+  bookmaker?: string;
+}
+
 /**
- * Flattens every fixture's bookmakerOdds into candidate legs with a fair-price
- * reference and edge. This is the only place raw OddsPapi odds get turned into
- * something the search algorithm can rank — no LLM involvement.
+ * Flattens every event's bookmakerOdds into candidate legs with a fair-price
+ * reference and edge. This is the only place raw odds get turned into something the
+ * search algorithm can rank — no LLM involvement.
  */
-export function extractCandidateLegs(fixtures: Fixture[]): CandidateLeg[] {
+export function extractCandidateLegs(events: Event[], options: ExtractCandidateLegsOptions = {}): CandidateLeg[] {
   const legs: CandidateLeg[] = [];
 
-  for (const fixture of fixtures) {
-    if (!fixture.bookmakerOdds) continue;
+  for (const event of events) {
+    if (Object.keys(event.bookmakerOdds).length === 0) continue;
 
     const marketIds = new Set<string>();
-    for (const book of Object.values(fixture.bookmakerOdds)) {
+    for (const book of Object.values(event.bookmakerOdds)) {
       for (const marketId of Object.keys(book.markets)) marketIds.add(marketId);
     }
 
     for (const marketId of marketIds) {
-      const outcomeIds = new Set<string>();
-      for (const book of Object.values(fixture.bookmakerOdds)) {
-        const market = book.markets[marketId];
-        if (market) for (const outcomeId of Object.keys(market.outcomes)) outcomeIds.add(outcomeId);
-      }
+      const refPrices = referencePrices(event.bookmakerOdds, marketId);
+      const fairProbabilities = deVig(refPrices);
 
-      for (const outcomeId of outcomeIds) {
-        const refPrices = referencePrices(fixture.bookmakerOdds, marketId, outcomeId);
-        const fairProbabilities = deVig(refPrices);
+      for (const [key, fairProbability] of Object.entries(fairProbabilities)) {
+        const best = bestPrice(event.bookmakerOdds, marketId, key, options.bookmaker);
+        if (!best || fairProbability <= 0) continue;
 
-        for (const [playerIdx, fairProbability] of Object.entries(fairProbabilities)) {
-          const best = bestPrice(fixture.bookmakerOdds, marketId, outcomeId, playerIdx);
-          if (!best || fairProbability <= 0) continue;
+        const fairPriceDecimal = 1 / fairProbability;
+        const edgePct = (best.outcome.price * fairProbability - 1) * 100;
+        // For h2h, the outcome name already IS the display label (a team name, or
+        // "Draw") — no catalog lookup needed. For spreads/totals, append the line.
+        const outcomeLabel =
+          best.outcome.point !== undefined
+            ? `${best.outcome.name} (${best.outcome.point > 0 ? "+" : ""}${best.outcome.point})`
+            : best.outcome.name;
 
-          const fairPriceDecimal = 1 / fairProbability;
-          const edgePct = (best.price * fairProbability - 1) * 100;
-
-          legs.push({
-            fixtureId: fixture.fixtureId,
-            sportId: fixture.sportId,
-            tournamentId: fixture.tournamentId,
-            participant1Id: fixture.participant1Id,
-            participant2Id: fixture.participant2Id,
-            participant1Name: fixture.participant1Name,
-            participant2Name: fixture.participant2Name,
-            startTime: fixture.startTime,
-            marketId,
-            outcomeId,
-            playerIdx,
-            selectionLabel: `${fixture.participant1Name ?? fixture.participant1Id} vs ${
-              fixture.participant2Name ?? fixture.participant2Id
-            } — market ${marketId} / ${playerIdx}`,
-            bookmaker: best.bookmaker,
-            priceDecimal: best.price,
-            fairPriceDecimal,
-            fairProbability,
-            edgePct,
-          });
-        }
+        legs.push({
+          fixtureId: event.eventId,
+          sportKey: event.sportKey,
+          homeTeam: event.homeTeam,
+          awayTeam: event.awayTeam,
+          startTime: event.commenceTime,
+          marketId,
+          outcomeName: best.outcome.name,
+          point: best.outcome.point,
+          selectionLabel: `${event.homeTeam} vs ${event.awayTeam} — ${outcomeLabel}`,
+          bookmaker: best.bookmaker,
+          priceDecimal: best.outcome.price,
+          fairPriceDecimal,
+          fairProbability,
+          edgePct,
+        });
       }
     }
   }

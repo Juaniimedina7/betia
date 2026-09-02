@@ -5,8 +5,8 @@ import { resolveLeagueRef } from "../league-map";
 import { getResolvedTeamId } from "../team-resolution";
 
 export const getTeamStatsInput = z.object({
-  participantId: z.string(),
-  tournamentId: z.string(),
+  teamName: z.string(),
+  sportKey: z.string(),
 });
 
 export type GetTeamStatsInput = z.infer<typeof getTeamStatsInput>;
@@ -17,12 +17,12 @@ export type GetTeamStatsInput = z.infer<typeof getTeamStatsInput>;
  * to be confused with market-implied numbers from build_combo/get_best_price.
  */
 export async function getTeamStats(input: GetTeamStatsInput) {
-  const league = resolveLeagueRef(input.tournamentId);
+  const league = resolveLeagueRef(input.sportKey);
   if (!league) {
     return { resolved: false as const, reason: "tournament_not_mapped" as const };
   }
 
-  const externalTeamId = await getResolvedTeamId(input.participantId);
+  const externalTeamId = await getResolvedTeamId(input.sportKey, input.teamName);
   if (!externalTeamId) {
     return { resolved: false as const, reason: "team_not_resolved" as const };
   }

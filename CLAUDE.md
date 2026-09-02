@@ -42,53 +42,100 @@ or nginx sites when working here.
   left in place — nothing in the code reads them, and Neon Auth (if ever wired up) is a
   separate concern from the Postgres migration. Safe to clean up later if confirmed unused.
 
-## OddsPapi quota (2026-08-30)
+## Odds provider: The Odds API, migrated from OddsPapi (2026-09-02)
 
-OddsPapi bills **250 requests/month total** (not an hourly/daily window — confirmed
-via `oddspapi.io/es/docs/requests-and-quota`). The 429 seen this session
-("Request limit exceeded... limit of 250 requests") was the whole month's budget,
-not a burst limit — plan the ingest cron's cost around a monthly total, not a rate.
+**Switched from OddsPapi (`oddspapi.io`) to The Odds API (`the-odds-api.com`)** — a
+different provider with a different data model, not just a different key. One string
+`sport_key` (e.g. `soccer_epl`) replaces OddsPapi's two-level numeric `sportId` +
+`tournamentId`; `GET /v4/sports/{sport}/odds` returns fixtures **and** every requested
+bookmaker's odds together in one call (no more 5-tournament batching or
+one-bookmaker-per-call); there's no stable participant id, only `home_team`/`away_team`
+name strings; markets are flat (`{key, outcomes: [{name, price, point?}]}`, no player
+dimension). New client: `packages/odds-api-client` (`@bet/odds-api-client`).
+
+**Also changed as part of this migration: strict API → DB → cache → web.** Before this,
+several MCP tools (`build_combo`'s cold-cache fallback, `list_fixtures`/`list_sports`/
+`list_tournaments`'s live-first pattern, `get_odds`'s live middle tier,
+`get_odds_by_tournament`/`get_best_price`'s always-live calls) and the public landing
+page's `GET /api/odds` all called the odds API live on a per-request basis — the real
+quota risk, not just the cron. Now **only `/api/ingest/poll` may call the odds API
+live**; every tool, page, and the agent chat reads `odds_cache`/`sports_cache`
+(Postgres) or Redis only. `get_historical_odds`/`get_scores`/`get_settlements` were
+dropped entirely (OddsPapi-era tools with no cache-backed equivalent) rather than
+rebuilt with dedicated history tables — out of scope for the migration.
+
+### Quota — confirmed live 2026-09-02, do not assume OddsPapi's model carries over
+
+The Odds API bills **500 requests/month** on the current plan (confirmed via
+`x-requests-remaining`/`x-requests-used` response headers), and — this is the part that
+doesn't carry over from OddsPapi — **cost = 1 credit per *market* requested per call**,
+regardless of how many bookmakers you ask for via the `bookmakers` param (confirmed
+live: requesting 2 bookmakers with `markets=h2h` cost 1 credit; `markets=h2h,totals`
+cost 2). OddsPapi billed per HTTP call with a 5-tournament batch cap; that formula does
+not apply here.
 
 `.github/workflows/poll-odds.yml` runs `/api/ingest/poll` **once a day** (`0 9 * * *`)
-across **2 bookmakers** (`DEFAULT_BOOKMAKERS = ["pinnacle", "bet365"]` in
-`apps/web/app/api/ingest/poll/route.ts`, overridable via `ODDSPAPI_BOOKMAKERS`,
-comma-separated) — 20 hardcoded soccer `tournamentIds`, batched 5 per
-`/v4/odds-by-tournaments` call, so ~4 requests/bookmaker/run × 2 bookmakers = ~8
-requests/run → ~240 requests/month, leaving a little headroom for manual
-`workflow_dispatch` runs. Was 2 runs/day with 1 bookmaker until 2026-09-01; dropped to
-1 run/day so a second bookmaker fits the same monthly budget (see "build_combo reads
-odds_cache first" below for why a second bookmaker matters). The route no longer calls
-`listSports()` on every run (dropped — it's static reference data already refreshed by
-live UI traffic; wasn't worth ~60 requests/month).
+requesting **1 market** (`h2h`) across **16 watched `sport_key`s**
+(`apps/web/lib/ingest/watched-sport-keys.ts`) and **7 bookmakers**
+(`DEFAULT_BOOKMAKERS = ["pinnacle", "unibet", "betano_uk", "codere_it", "betsson",
+"betway", "espnbet"]` in `apps/web/app/api/ingest/poll/route.ts`, overridable via
+`ODDSAPI_BOOKMAKERS`) — one `GET /v4/sports/{sport}/odds` call per watched league, so
+16 requests/run × ~30 runs/month ≈ 480 requests/month, leaving ~20/month headroom for
+manual `workflow_dispatch` runs. **The bookmaker count doesn't affect this math at
+all** — cost is per market requested, not per bookmaker (see above), so 7 bookmakers
+cost exactly the same as 2 did. The route also refreshes `sports_cache` every run
+(`listSports()`, free — no market param, doesn't count toward the per-market cost
+above) since no tool has a live-fallback write path anymore to keep it warm otherwise.
 
-`packages/oddspapi-client/src/ingestion/rest-polling-source.ts` polls once per
-bookmaker (one full pass over the tournament batches per book, since
-`/v4/odds-by-tournaments` only accepts one bookmaker per call) and each poll's DB
-upsert (`apps/web/app/api/ingest/poll/route.ts`) merges into `odds_cache.bookmaker_odds`
-via a `jsonb ||` — **not** an overwrite — since one book's write landing after
-another's for the same fixture would otherwise clobber it.
+**Bet365 is not available on The Odds API** (confirmed live across a full survey of
+all 66 bookmakers this account can see across the 16 watched leagues, 2026-09-02 — it
+never appeared once, unlike OddsPapi). Pinnacle stays as the de-vig reference (sharp
+book, low vig); the other 6 (`unibet`, `betano_uk`, `codere_it`, `betsson`, `betway`,
+`espnbet`) were picked by hand from that survey. **Coverage isn't uniform across the
+16 leagues** — a book present in the survey can still be missing from a specific
+league (several Europe-focused books, e.g. `williamhill`, drop out entirely for South
+American leagues; `unibet` was specifically checked live for full South American
+coverage — Argentina/Brazil/Chile/Mexico/Libertadores/Sudamericana — the other 5
+weren't individually re-verified per league). `build_combo`'s `bookmaker` filter
+(see below) can legitimately come back empty for a book+league combination even
+though the book is in `DEFAULT_BOOKMAKERS`.
 
-If you need to add sports beyond soccer (basketball/tennis/boxing were requested but
-blocked this session by the exhausted quota — couldn't verify their `sportId`s live)
-or change cadence/tournament count/bookmaker count, redo this budget math first:
-`requests/month = runs/month × ceil(tournamentIds / 5) × bookmakers`, and keep it
-under ~250.
+**The watchlist shrank from OddsPapi's 20 tournaments to 16 `sport_key`s** — two kinds
+of cut, don't conflate them:
+- **Uruguay's Primera División and Colombia's Primera A don't exist on The Odds API at
+  all** (checked live, including `GET /v4/sports?all=true` for out-of-season
+  competitions) — a real, permanent coverage gap, not a bug.
+- **Belgium's Pro League and the Dutch Eredivisie were cut for quota**, not coverage —
+  18 confirmed-available leagues × 1 market × 30 runs/month would have been 540/month,
+  over the 500 budget.
 
-### build_combo reads odds_cache first (2026-09-01)
+`packages/odds-api-client/src/ingestion/rest-polling-source.ts` polls with a flat
+`for (sportKey of watchedSportKeys) { client.getSportOdds(sportKey, {bookmakers, markets}) }`
+loop — no per-bookmaker looping or batching needed, since one call already returns
+every requested bookmaker's odds together. The DB upsert
+(`apps/web/app/api/ingest/poll/route.ts`) is now a **plain overwrite** of
+`odds_cache.bookmaker_odds`, not the jsonb `||` merge OddsPapi's ingest needed — that
+merge existed specifically because OddsPapi's ingest made one API call *per bookmaker*
+(separate write events for the same fixture); The Odds API bundles every requested
+bookmaker into one event, so there's nothing left to merge.
 
-`packages/mcp-tools/src/tools/build-combo.ts` (the tool behind the agent's "armar
-combinada") used to hit OddsPapi live across 7 bookmakers on **every** call, no
-fallback — a handful of agent chats could blow the entire monthly quota on their own,
-on top of the cron's budget above, and once the quota was exhausted every combo request
-failed outright with a generic error. It now reads `odds_cache` (scoped to the
-requested `tournamentIds`) first — free, and already covers the 20 watched tournaments
-via the cron above — and only falls back to a live fetch (same 2-bookmaker list the
-cron polls: Pinnacle + one more, so edge quality doesn't regress) when the cache has
-nothing for the requested tournaments (an off-watchlist tournament, or a cold cache).
-`packages/mcp-tools/src/tools/list-fixtures.ts` already had this live-then-cache
-fallback shape for fixture listings; this just gives `build_combo` the DB-first version
-of the same pattern, since it's the tool actually spending the quota on every
-user-triggered request.
+If you need to add sports beyond soccer, or change cadence/league count/bookmaker
+count/markets requested, redo this budget math first:
+`requests/month = runs/month × sport_keys × markets.length`, and keep it under ~500
+(leave headroom for manual `workflow_dispatch` runs).
+
+### build_combo is cache-only, no live fallback (2026-09-02)
+
+`packages/mcp-tools/src/tools/build-combo.ts` briefly had a narrow live-fallback (added
+2026-09-01, for the case where the requested tournaments had zero cached rows) — that
+fallback was **removed** in the OddsPapi→The Odds API migration, since the whole point
+of the new API → DB → cache → web architecture is that no user-facing tool calls the
+odds API live, full stop. A cold/off-watchlist `sport_key` now just returns the existing
+empty-result shape ("no se encontraron partidos") instead of triggering a live call.
+Every other odds-touching MCP tool (`list_fixtures`, `list_sports`, `list_tournaments`,
+`get_odds`, `get_odds_by_tournament`, `get_best_price`) went through the same
+live-fallback-removal during this migration — none of them import the odds API client
+anymore; only `/api/ingest/poll` does.
 
 ## Highlightly quota (2026-08-31)
 
@@ -123,55 +170,66 @@ header.
 The big win over API-Football: `GET /standings?leagueId&season` returns **every
 team's** current-season home/away/total wins/draws/losses/goals-for/goals-against for
 an entire league in **one call** — no per-team stats endpoint needed, and no
-current-season restriction. This is what makes covering all 20 watched tournaments
-affordable: `apps/web/app/api/ingest/poll-stats/route.ts` refreshes **all 20 leagues'
-full standings every run** (flat 20 requests, no staleness tracking needed for team
-stats at all — always ≤24h stale given the cron's current cadence, see below).
-Head-to-head (`GET /head-2-head?teamIdOne&teamIdTwo`) is still pairwise, so that side
-keeps a staleness window (14 days — head-to-head history only changes when the same two
-teams play again) and a per-run cap (`MAX_H2H_FETCHES_PER_RUN=15`). Budget:
-`1 run/day × (20 standings + 15 h2h) = 35 requests/day`, well under the 100/day cap —
-was `2 runs/day` (70/day) until 2026-09-01, when the shared cron (see below) dropped to
-once a day so OddsPapi's poll could add a second bookmaker within its own budget; this
-route's own headroom just grew as a side effect. Redo this math
-(`requests/day = runs/day × per-run cost`) before changing cadence, tournament
-coverage, or the H2H cap.
+current-season restriction. This is what makes covering all watched leagues
+affordable: `apps/web/app/api/ingest/poll-stats/route.ts` refreshes **every mapped
+league's full standings every run** (flat request count = league count, no staleness
+tracking needed for team stats at all — always ≤24h stale given the cron's current
+cadence, see below). Head-to-head (`GET /head-2-head?teamIdOne&teamIdTwo`) is still
+pairwise, so that side keeps a staleness window (14 days — head-to-head history only
+changes when the same two teams play again) and a per-run cap
+(`MAX_H2H_FETCHES_PER_RUN=15`). Budget (post OddsPapi→The Odds API migration,
+2026-09-02): `1 run/day × (16 standings + 15 h2h) = 31 requests/day`, well under the
+100/day cap — the watched-league count dropped from 20 to 16 as part of that migration
+(see the odds-provider section above for why), which only grew this route's already
+comfortable headroom. Redo this math (`requests/day = runs/day × per-run cost`) before
+changing cadence, league coverage, or the H2H cap.
 
 `.github/workflows/poll-odds.yml` runs `/api/ingest/poll-stats` as a second,
 independent step in the same once-a-day job as the odds poll (`0 9 * * *`) — a
 stats-ingestion failure must never mask a successful odds poll, or vice versa.
 
-OddsPapi `tournamentId` → Highlightly `{leagueId, season}` is hand-curated in
+The Odds API `sport_key` → Highlightly `{leagueId, season}` is hand-curated in
 `packages/mcp-tools/src/league-map.ts` (`LEAGUE_MAP`) — same pattern as
-`DEFAULT_WATCHED_TOURNAMENT_IDS` above. **Filled in and verified 2026-08-31** against
-live `GET /leagues?limit&offset` calls, all 20 watched tournaments mapped with a full
-2026 season available. Two exceptions, both noted inline in the file: Copa America is
-biennial (mapped to its last completed season `2024`, no 2025/2026 edition yet — don't
-bump this one's year alongside the annual leagues) and Uruguay's top flight runs as
-split Apertura/Clausura tournaments rather than one continuous league (mapped to
-Apertura). If a tournament has no entry here, `/api/ingest/poll-stats` skips it and the
-three MCP tools (`get_team_stats`/`get_head_to_head`/`estimate_match_probability`)
-return `resolved:false`/`available:false` for it. Re-check every entry at each season
+`DEFAULT_WATCHED_SPORT_KEYS` above. **Originally filled in and verified 2026-08-31**
+against live `GET /leagues?limit&offset` calls (back when it was keyed by OddsPapi
+tournamentId); **rekeyed (not re-verified) 2026-09-02** when the odds provider
+migration replaced those numeric ids with `sport_key` strings — the Highlightly-side
+`{leagueId, season}` values are untouched, only the left-hand keys changed. Uruguay and
+Colombia's old entries were dropped along with their watchlist entries (see above — The
+Odds API doesn't cover those leagues at all, not a Highlightly issue). Two exceptions
+remain, both noted inline in the file: Copa America is biennial (mapped to its last
+completed season `2024`, no 2025/2026 edition yet — don't bump this one's year alongside
+the annual leagues); the old Uruguay split-Apertura/Clausura note no longer applies
+since Uruguay isn't watched at all anymore. If a `sport_key` has no entry here,
+`/api/ingest/poll-stats` skips it and the three MCP tools
+(`get_team_stats`/`get_head_to_head`/`estimate_match_probability`) return
+`resolved:false`/`available:false` for it. Re-check every entry at each season
 boundary — a stale `season` value silently returns empty/wrong stats rather than
 erroring.
 
-Team-name matching (OddsPapi participant name → Highlightly team id) is exact-then-
-fuzzy (Levenshtein), scoped to one league+season roster at a time (the `/standings`
-response for that league doubles as the candidate roster — no separate "list teams"
-call needed) — see `apps/web/lib/ingest/team-name-matching.ts`. Resolutions are cached
-in the `team_id_map` table (deliberately provider-agnostic naming, given this project
-already switched providers once) with a `matchStrategy`/`matchConfidence` pair so a
-low-confidence fuzzy match can be audited/corrected by hand later.
+Team-name matching (odds-provider team name → Highlightly team id) is exact-then-fuzzy
+(Levenshtein), scoped to one league+season roster at a time (the `/standings` response
+for that league doubles as the candidate roster — no separate "list teams" call
+needed) — see `apps/web/lib/ingest/team-name-matching.ts`. Resolutions are cached in
+the `team_id_map` table (deliberately provider-agnostic naming, given this project
+already switched odds providers once) with a `matchStrategy`/`matchConfidence` pair so
+a low-confidence fuzzy match can be audited/corrected by hand later. The table's
+primary key was rekeyed from `oddspapi_participant_id` to `team_key` during the
+2026-09-02 migration — The Odds API has no stable participant id at all, only
+`home_team`/`away_team` name strings, so `team_key` is
+`` `${sportKey}:${slug(teamName)}` `` (see `packages/mcp-tools/src/team-resolution.ts`)
+rather than a provider-issued id.
 
-Home/away assumption: `estimate_match_probability` takes an optional
-`homeParticipantId` (defaults to `participant1Id`) rather than hard-assuming OddsPapi
-always orders `participant1`/`participant2` as home/away — that ordering was never
-confirmed against a live OddsPapi response (OddsPapi's own monthly quota was already
-exhausted while this was built). Verify it the next time OddsPapi quota allows a live
-check, and drop the optional param if it turns out to always be true. Separately,
-Highlightly's `/head-2-head` response doesn't label which side of its `"3 - 0"` score
-string is home vs away — `packages/highlightly-client` assumes home-first (matching
-its separate `homeTeam`/`awayTeam` fields), unverified against a known real result.
+Home/away: **resolved as of the 2026-09-02 odds-provider migration.** OddsPapi never
+confirmed whether `participant1`/`participant2` always ordered as home/away, so
+`estimate_match_probability` carried an optional override param for it. The Odds API's
+events are explicit (`home_team`/`away_team` fields), so that whole class of ambiguity
+is gone — `estimate_match_probability`/`get_head_to_head` now just take `homeTeam`/
+`awayTeam` directly, no override param needed. Separately, Highlightly's
+`/head-2-head` response still doesn't label which side of its `"3 - 0"` score string is
+home vs away — `packages/highlightly-client` assumes home-first (matching its separate
+`homeTeam`/`awayTeam` fields), still unverified against a known real result; this is an
+unrelated, still-open item.
 
 ## Next steps / open items
 
@@ -208,3 +266,10 @@ its separate `homeTeam`/`awayTeam` fields), unverified against a known real resu
    production.** `LEAGUE_MAP` is filled in (see "Highlightly quota" above), so
    `/api/ingest/poll-stats` is ready to actually ingest — it just needs the key added
    to the real prod Vercel project (see item 1) the same way `ANTHROPIC_API_KEY` does.
+7. **`ODDSAPI_API_KEY` is set locally (`apps/web/.env.local`, was already provisioned
+   before the 2026-09-02 OddsPapi→The Odds API migration started) but not yet in
+   production**, same gap as items 2 and 6 — needs adding to the real prod Vercel
+   project (see item 1). The old `ODDSPAPI_API_KEY`/`ODDSPAPI_HOST`/
+   `ODDSPAPI_TIMEOUT_MS`/`WATCHED_TOURNAMENT_IDS` env vars are safe to remove from
+   Vercel and `.env.local` whenever convenient — nothing in the code reads them
+   anymore (same "safe to clean up later" situation as the leftover Neon vars above).

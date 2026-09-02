@@ -122,9 +122,9 @@ async function FixturesView({
                 </span>
                 <div>
                   <p className="font-medium leading-tight">
-                    {fixture.participant1Name ?? fixture.participant1Id}
+                    {fixture.homeTeam}
                     <span className="mx-2 text-[var(--color-ink-faint)]">vs</span>
-                    {fixture.participant2Name ?? fixture.participant2Id}
+                    {fixture.awayTeam}
                   </p>
                   <p className="mt-0.5 text-xs text-[var(--color-ink-muted)] tnum">
                     {new Date(fixture.startTime).toLocaleString("es-AR", {

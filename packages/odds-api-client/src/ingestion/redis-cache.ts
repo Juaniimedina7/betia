@@ -16,15 +16,17 @@ function getRedis(): Redis {
   return cachedRedis;
 }
 
-const keyFor = (fixtureId: string) => `odds:fixture:${fixtureId}`;
+// Key prefix kept as "odds:fixture:" (not "odds:event:") on purpose — no functional
+// reason to rename it, and doing so would be pure churn for every SSE/Redis reader.
+const keyFor = (eventId: string) => `odds:fixture:${eventId}`;
 
 export class RedisOddsCache implements OddsCache {
-  async setFixtureOdds(fixtureId: string, odds: BookmakerOdds, ttlSeconds: number): Promise<void> {
-    await getRedis().set(keyFor(fixtureId), JSON.stringify(odds), { ex: ttlSeconds });
+  async setFixtureOdds(eventId: string, odds: BookmakerOdds, ttlSeconds: number): Promise<void> {
+    await getRedis().set(keyFor(eventId), JSON.stringify(odds), { ex: ttlSeconds });
   }
 
-  async getFixtureOdds(fixtureId: string): Promise<BookmakerOdds | null> {
-    const raw = await getRedis().get<string>(keyFor(fixtureId));
+  async getFixtureOdds(eventId: string): Promise<BookmakerOdds | null> {
+    const raw = await getRedis().get<string>(keyFor(eventId));
     if (!raw) return null;
     return typeof raw === "string" ? (JSON.parse(raw) as BookmakerOdds) : (raw as BookmakerOdds);
   }

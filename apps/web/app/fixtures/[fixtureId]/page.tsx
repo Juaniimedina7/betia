@@ -11,19 +11,16 @@ export default async function FixturePage({ params }: PageProps<"/fixtures/[fixt
   let bookmakerOdds: Awaited<ReturnType<typeof getOdds>>["bookmakerOdds"] = {};
   let source: Awaited<ReturnType<typeof getOdds>>["source"] | null = null;
   let matchup: Awaited<ReturnType<typeof getOdds>>["matchup"];
-  let marketCatalog: Awaited<ReturnType<typeof getOdds>>["marketCatalog"] = {};
   let error: string | null = null;
 
   try {
-    ({ bookmakerOdds, source, matchup, marketCatalog } = await getOdds({ fixtureId }));
+    ({ bookmakerOdds, source, matchup } = await getOdds({ fixtureId }));
   } catch (e) {
     error = e instanceof Error ? e.message : "No se pudieron cargar las cuotas";
   }
 
   const matchupLabel =
-    matchup?.participant1Name && matchup?.participant2Name
-      ? `${matchup.participant1Name} vs ${matchup.participant2Name}`
-      : null;
+    matchup?.homeTeam && matchup?.awayTeam ? `${matchup.homeTeam} vs ${matchup.awayTeam}` : null;
 
   return (
     <div className="container-page py-14">
@@ -59,7 +56,7 @@ export default async function FixturePage({ params }: PageProps<"/fixtures/[fixt
         {error ? (
           <p className="text-[var(--color-danger)]">{error}</p>
         ) : (
-          <LiveOddsTable fixtureId={fixtureId} initialOdds={bookmakerOdds} marketCatalog={marketCatalog} />
+          <LiveOddsTable fixtureId={fixtureId} initialOdds={bookmakerOdds} />
         )}
       </div>
     </div>

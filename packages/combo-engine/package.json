@@ -12,7 +12,7 @@
     "lint": "echo skip"
   },
   "dependencies": {
-    "@bet/oddspapi-client": "workspace:*"
+    "@bet/odds-api-client": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

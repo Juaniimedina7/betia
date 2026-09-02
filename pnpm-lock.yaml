@@ -31,9 +31,9 @@ importers:
       '@bet/mcp-tools':
         specifier: workspace:*
         version: link:../../packages/mcp-tools
-      '@bet/oddspapi-client':
+      '@bet/odds-api-client':
         specifier: workspace:*
-        version: link:../../packages/oddspapi-client
+        version: link:../../packages/odds-api-client
       '@clerk/nextjs':
         specifier: ^7.8.2
         version: 7.8.2(next@16.3.3(@babel/core@7.29.7(supports-color@7.2.0))(@types/node@20.19.43)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -101,9 +101,9 @@ importers:
 
   packages/combo-engine:
     dependencies:
-      '@bet/oddspapi-client':
+      '@bet/odds-api-client':
         specifier: workspace:*
-        version: link:../oddspapi-client
+        version: link:../odds-api-client
     devDependencies:
       '@types/node':
         specifier: ^20.19.43
@@ -151,9 +151,9 @@ importers:
       '@bet/db':
         specifier: workspace:*
         version: link:../db
-      '@bet/oddspapi-client':
+      '@bet/odds-api-client':
         specifier: workspace:*
-        version: link:../oddspapi-client
+        version: link:../odds-api-client
       '@bet/stats-engine':
         specifier: workspace:*
         version: link:../stats-engine
@@ -171,7 +171,7 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  packages/oddspapi-client:
+  packages/odds-api-client:
     dependencies:
       '@upstash/redis':
         specifier: ^1.38.2
