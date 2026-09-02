@@ -40,7 +40,7 @@ export async function POST(req: Request) {
 
   const mcpClient = await createMCPClient({
     transport: {
-      type: "sse",
+      type: "http",
       url: mcpUrl.toString(),
       headers: { Authorization: `Bearer ${internalToken}` },
     },
