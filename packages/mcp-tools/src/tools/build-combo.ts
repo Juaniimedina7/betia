@@ -28,6 +28,17 @@ async function resolveTournamentIds(input: BuildComboInput): Promise<string[]> {
   }
 
   if (input.sports && input.sports.length > 0) {
+    // Prefer tournaments odds_cache already has odds for — listTournaments' full
+    // catalog (thousands of minor tournaments worldwide) has no relation to which
+    // ~20 the ingest cron actually watches, so slicing it gave build_combo random
+    // tournamentIds odds_cache had never heard of. Only fall back to the catalog
+    // when this sport has no cached coverage yet (e.g. a sport the cron doesn't
+    // watch at all).
+    const cachedTournamentIds = await cachedTournamentIdsForSports(input.sports);
+    if (cachedTournamentIds.length > 0) {
+      return cachedTournamentIds.slice(0, MAX_TOURNAMENTS);
+    }
+
     const tournamentLists = await Promise.all(
       input.sports.map((sportId) => listTournaments({ sportId })),
     );
@@ -120,6 +131,26 @@ export async function buildComboTool(input: BuildComboInput) {
     riskProfile: input.riskProfile,
     tolerance: input.tolerance,
   });
+}
+
+/** Distinct tournamentIds odds_cache already has odds for, scoped to these sports. */
+async function cachedTournamentIdsForSports(sportIds: string[]): Promise<string[]> {
+  try {
+    const db = getDb();
+    const rows = await db
+      .selectDistinct({ tournamentId: oddsCache.tournamentId })
+      .from(oddsCache)
+      .where(
+        and(
+          inArray(oddsCache.sportId, sportIds),
+          isNotNull(oddsCache.tournamentId),
+          isNotNull(oddsCache.bookmakerOdds),
+        ),
+      );
+    return rows.map((r) => r.tournamentId).filter((id): id is string => Boolean(id));
+  } catch {
+    return [];
+  }
 }
 
 /** Best-effort read of odds_cache (written by /api/ingest/poll) — never throws. */
