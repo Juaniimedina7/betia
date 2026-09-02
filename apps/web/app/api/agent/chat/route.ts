@@ -52,6 +52,10 @@ export async function POST(req: Request) {
   return createAgentUIStreamResponse({
     agent,
     uiMessages: messages,
+    onError: (error) => {
+      console.error("TEMP_DEBUG agent chat error:", error);
+      return error instanceof Error ? error.message : String(error);
+    },
     onEnd: async () => {
       await mcpClient.close();
     },
