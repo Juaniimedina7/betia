@@ -18,7 +18,13 @@ if (!token) {
 
 // Secrets that must never be pushed to Vercel as app env vars.
 const DENY = new Set(
-  ["VERCEL_TOKEN", "VERCEL_ORG_ID", "VERCEL_PROJECT_ID", "GITHUB_TOKEN"].map((k) => k.toLowerCase()),
+  [
+    "VERCEL_TOKEN",
+    "VERCEL_ORG_ID",
+    "VERCEL_PROJECT_ID",
+    "VERCEL_OIDC_TOKEN", // Vercel injects this itself — pushing it would break OIDC
+    "GITHUB_TOKEN",
+  ].map((k) => k.toLowerCase()),
 );
 const isDenied = (key) => DENY.has(key.toLowerCase()) || key.toUpperCase().startsWith("GITHUB_");
 
