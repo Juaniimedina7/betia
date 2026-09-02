@@ -74,40 +74,90 @@ live: requesting 2 bookmakers with `markets=h2h` cost 1 credit; `markets=h2h,tot
 cost 2). OddsPapi billed per HTTP call with a 5-tournament batch cap; that formula does
 not apply here.
 
-`.github/workflows/poll-odds.yml` runs `/api/ingest/poll` **once a day** (`0 9 * * *`)
-requesting **1 market** (`h2h`) across **16 watched `sport_key`s**
-(`apps/web/lib/ingest/watched-sport-keys.ts`) and **7 bookmakers**
-(`DEFAULT_BOOKMAKERS = ["pinnacle", "unibet", "betano_uk", "codere_it", "betsson",
-"betway", "espnbet"]` in `apps/web/app/api/ingest/poll/route.ts`, overridable via
-`ODDSAPI_BOOKMAKERS`) — one `GET /v4/sports/{sport}/odds` call per watched league, so
-16 requests/run × ~30 runs/month ≈ 480 requests/month, leaving ~20/month headroom for
-manual `workflow_dispatch` runs. **The bookmaker count doesn't affect this math at
-all** — cost is per market requested, not per bookmaker (see above), so 7 bookmakers
-cost exactly the same as 2 did. The route also refreshes `sports_cache` every run
+`.github/workflows/poll-odds.yml` runs `/api/ingest/poll` **once a day at 17:00
+Argentina time / 20:00 UTC** (`0 20 * * *` — changed from `0 9 * * *` on 2026-09-03 to
+land the refresh closer to when the primary audience actually uses the platform)
+requesting **1 market** (`h2h`) across **15 fixed `sport_key`s** (13 soccer leagues +
+`basketball_nba` + `americanfootball_nfl`, see `apps/web/lib/ingest/watched-sport-keys.ts`)
+**plus up to 2 dynamically-discovered active tennis tournaments** (see the "Multi-sport"
+subsection below) and **7 bookmakers** (`DEFAULT_BOOKMAKERS = ["pinnacle", "unibet",
+"betano_uk", "codere_it", "betsson", "betway", "espnbet"]` in
+`apps/web/app/api/ingest/poll/route.ts`, overridable via `ODDSAPI_BOOKMAKERS`) — one
+`GET /v4/sports/{sport}/odds` call per watched sport_key, so 15–17 requests/run × ~30
+runs/month ≈ 450–510/month, close to the 500 cap but with margin most months (the
+17-request peak only happens when 2 tennis tournaments are simultaneously active,
+which isn't year-round). **The bookmaker count doesn't affect this math at all** —
+cost is per market requested, not per bookmaker (see above), so 7 bookmakers cost
+exactly the same as 2 did. The route also refreshes `sports_cache` every run
 (`listSports()`, free — no market param, doesn't count toward the per-market cost
 above) since no tool has a live-fallback write path anymore to keep it warm otherwise.
 
 **Bet365 is not available on The Odds API** (confirmed live across a full survey of
-all 66 bookmakers this account can see across the 16 watched leagues, 2026-09-02 — it
-never appeared once, unlike OddsPapi). Pinnacle stays as the de-vig reference (sharp
-book, low vig); the other 6 (`unibet`, `betano_uk`, `codere_it`, `betsson`, `betway`,
-`espnbet`) were picked by hand from that survey. **Coverage isn't uniform across the
-16 leagues** — a book present in the survey can still be missing from a specific
-league (several Europe-focused books, e.g. `williamhill`, drop out entirely for South
-American leagues; `unibet` was specifically checked live for full South American
-coverage — Argentina/Brazil/Chile/Mexico/Libertadores/Sudamericana — the other 5
-weren't individually re-verified per league). `build_combo`'s `bookmaker` filter
-(see below) can legitimately come back empty for a book+league combination even
-though the book is in `DEFAULT_BOOKMAKERS`.
+all 66 bookmakers this account can see across the then-16 watched soccer leagues,
+2026-09-02 — it never appeared once, unlike OddsPapi). Pinnacle stays as the de-vig
+reference (sharp book, low vig); the other 6 (`unibet`, `betano_uk`, `codere_it`,
+`betsson`, `betway`, `espnbet`) were picked by hand from that survey. **Coverage isn't
+uniform across leagues/sports** — a book present in the survey can still be missing
+from a specific league or sport (several Europe-focused books, e.g. `williamhill`,
+drop out entirely for South American leagues; `unibet` was specifically checked live
+for full South American coverage — Argentina/Brazil/Mexico/Libertadores/Sudamericana —
+the other 5 weren't individually re-verified per league or for NBA/NFL/tennis).
+`build_combo`'s `bookmaker` filter (see below) can legitimately come back empty for a
+book+sport_key combination even though the book is in `DEFAULT_BOOKMAKERS`.
 
-**The watchlist shrank from OddsPapi's 20 tournaments to 16 `sport_key`s** — two kinds
-of cut, don't conflate them:
+**The soccer watchlist shrank from OddsPapi's 20 tournaments to 13 `sport_key`s** (was
+16 as of the 2026-09-02 provider migration, cut further to 13 on 2026-09-03 to make
+room for NBA/NFL/tennis) — three separate reasons, don't conflate them:
 - **Uruguay's Primera División and Colombia's Primera A don't exist on The Odds API at
   all** (checked live, including `GET /v4/sports?all=true` for out-of-season
   competitions) — a real, permanent coverage gap, not a bug.
-- **Belgium's Pro League and the Dutch Eredivisie were cut for quota**, not coverage —
+- **Belgium's Pro League and the Dutch Eredivisie were cut for quota** on 2026-09-02 —
   18 confirmed-available leagues × 1 market × 30 runs/month would have been 540/month,
   over the 500 budget.
+- **Portugal's Primeira Liga and Chile's Primera División were cut for quota** on
+  2026-09-03, specifically to make room for adding NBA, NFL, and tennis — chosen as
+  the two lowest-event-count domestic leagues remaining once the continental cups
+  (deliberately protected both times) were taken off the table.
+
+### Multi-sport: NBA, NFL, and tennis added (2026-09-03)
+
+Added `basketball_nba` and `americanfootball_nfl` to the fixed watchlist — both are
+single, stable, year-round `sport_key`s exactly like a soccer league, so no special
+handling needed beyond adding them to `DEFAULT_WATCHED_SPORT_KEYS`. Verified live that
+NBA/NFL/tennis events return the same shape as soccer (`home_team`/`away_team`, `h2h`
+market with 2 (not 3) outcomes since none of these have a draw) — every existing
+consumer (`extractCandidateLegs`, `list-fixtures`, `featured-events.ts`'s
+`headlineMarket`, `MatchesList.tsx`, `live-odds-table.tsx`) already handled 2-way
+markets generically, so **no changes were needed to any of that code** — only to the
+watchlist, `sports_cache` schema/population, and the Spanish sport-name display logic
+(`packages/mcp-tools/src/tools/list-sports.ts`'s `SPANISH_GROUP_NAMES`,
+`apps/web/lib/featured-events.ts`'s `sportNameForKey`).
+
+**Tennis needed different treatment, not just a 3rd hardcoded sport_key.** The Odds
+API has no continuous "ATP/WTA tour" the way soccer has stable leagues — each
+tournament (Wimbledon, US Open, a Masters event, etc.) is its own `sport_key` that
+only exists `active: true` during that ~1-2 week window each year (confirmed live
+2026-09-03: of 44 known tennis `sport_key`s, only `tennis_atp_us_open` and
+`tennis_wta_us_open` were active on that date; every major and most Masters events
+were `active: false`). Hardcoding one would mean paying for it 50 weeks a year with
+zero events returned. Instead: `sports_cache` gained an `active` boolean column
+(populated from `Sport.active` on every `listSports()` refresh, which the ingest route
+already calls every run), and `apps/web/lib/ingest/watched-sport-keys.ts`'s
+`watchedSportKeys()` queries it live each run for `group = "Tennis" AND active = true`,
+capped at `MAX_TENNIS_TOURNAMENTS_PER_RUN = 2` (a defensive bound, not a precise
+calculation — concurrent-tournament count varies through the year; redo this cap if
+it turns out to spike the monthly total past 500 in practice). An explicit
+`WATCHED_SPORT_KEYS` env override skips this dynamic discovery entirely (an override
+means exactly that list, not that list plus auto-discovered tennis).
+
+**The statistical-probability model (Poisson/`estimate_match_probability`) stays
+soccer-only.** `packages/mcp-tools/src/league-map.ts`'s `LEAGUE_MAP` and the
+Highlightly stats pipeline (`apps/web/app/api/ingest/poll-stats/route.ts`,
+`team_season_stats`) were never touched — NBA/NFL/tennis fixtures simply get
+`available: false` / `resolved: false` from `estimate_match_probability`/
+`get_team_stats`/`get_head_to_head` (same `tournament_not_mapped` path an unmapped
+soccer sport_key already hits). Extending Highlightly (or a different stats provider)
+to cover basketball/NFL/tennis is a separate, larger task — out of scope here.
 
 `packages/odds-api-client/src/ingestion/rest-polling-source.ts` polls with a flat
 `for (sportKey of watchedSportKeys) { client.getSportOdds(sportKey, {bookmakers, markets}) }`

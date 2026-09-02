@@ -11,12 +11,13 @@ export interface SportGroup {
   name: string;
 }
 
-// Product scope: every watched league is soccer today (see watched-sport-keys.ts), so
-// this is the only group with anything behind it in odds_cache — showing "Básquet" or
-// "Tenis" here would be a dead end regardless of what's in sports_cache. Expand this
-// once non-soccer leagues are added to the watchlist.
+// Product scope (2026-09-03): the four sport groups actually behind odds_cache — see
+// watched-sport-keys.ts. Order here is display order in list_sports' response.
 const SPANISH_GROUP_NAMES: Record<string, string> = {
   Soccer: "Fútbol",
+  Basketball: "Básquet",
+  "American Football": "NFL",
+  Tennis: "Tenis",
 };
 
 /**

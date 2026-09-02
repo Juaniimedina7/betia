@@ -19,10 +19,16 @@ const PRIORITY_MARKET_IDS = ["h2h", "spreads", "totals"];
 
 const PINNACLE_KEYS = ["pinnacle", "pinnacle.com"];
 
-// Product scope: every watched league is soccer today — see watched-sport-keys.ts and
-// list-sports.ts's SPANISH_GROUP_NAMES. No group column lives on odds_cache itself, so
-// this is hardcoded rather than queried; revisit once non-soccer leagues are ingested.
-const SPORT_NAME = "Fútbol";
+// No group column lives on odds_cache itself (only sport_key), so this derives the
+// Spanish sport name from the sport_key's own prefix instead of joining sports_cache
+// — every sport_key The Odds API issues is prefixed by its group this way. Keep in
+// sync with list-sports.ts's SPANISH_GROUP_NAMES.
+function sportNameForKey(sportKey: string): string {
+  if (sportKey.startsWith("basketball_")) return "Básquet";
+  if (sportKey.startsWith("tennis_")) return "Tenis";
+  if (sportKey.startsWith("americanfootball_")) return "NFL";
+  return "Fútbol";
+}
 
 export interface FeaturedPick {
   /** Human-readable selection — the outcome name (a team name, "Empate", "Más de 2.5", etc). */
@@ -126,7 +132,7 @@ export async function getFeaturedEvents(): Promise<FeaturedEventsResult> {
       events.push({
         fixtureId: row.eventId,
         sportId: row.sportKey,
-        sportName: SPORT_NAME,
+        sportName: sportNameForKey(row.sportKey),
         tournamentId: row.sportKey,
         tournamentName: row.sportTitle ?? row.sportKey,
         participant1: row.homeTeam ?? "?",

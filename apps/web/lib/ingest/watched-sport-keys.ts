@@ -1,27 +1,18 @@
+import { getDb, sportsCache } from "@bet/db";
+import { and, eq } from "drizzle-orm";
+
 /**
- * Top-flight soccer leagues across Europe and Latin America, plus the main
- * continental cups — as The Odds API `sport_key` strings. Hardcoded (rather than
- * driven only by WATCHED_SPORT_KEYS) so the cron works without any per-environment
- * config. Verified live against GET /v4/sports (and /v4/sports?all=true for
- * currently-out-of-season competitions) on 2026-09-02.
+ * Fixed watchlist: soccer leagues, plus the two "always-on" major team sports (NBA,
+ * NFL) that — like soccer — each run as a single stable sport_key year-round. Tennis
+ * is NOT here; see watchedTennisSportKeys below.
  *
- * Two leagues that were on OddsPapi's watchlist don't exist on The Odds API at all —
- * Uruguay's Primera División and Colombia's Primera A. Not a bug, checked with
- * `all=true` too; this provider's South American coverage stops at Argentina, Brazil,
- * Chile, Mexico, and the CONMEBOL continental cups. A real, permanent coverage gap.
- *
- * Belgium's Pro League and the Dutch Eredivisie were also dropped, but for quota
- * reasons rather than coverage: The Odds API bills 1 credit per market requested per
- * call (confirmed live — NOT a flat per-call cost like OddsPapi's), so ingest cost is
- * `runs/month × leagues × markets.length`. At the free plan's 500 requests/month, 16
- * leagues × 1 market (h2h) × 1 run/day × 30 days = 480/month, leaving ~20/month of
- * headroom for manual `workflow_dispatch` runs. 18 leagues would have been 540/month —
- * over budget. Redo this math (and reconsider what to trim) before adding leagues,
- * markets, or a second daily run.
- *
- * Shared by both ingestion routes (/api/ingest/poll for odds, /api/ingest/poll-stats
- * for Highlightly team/head-to-head stats) so the watched scope never drifts between
- * the two — see CLAUDE.md's "The Odds API quota" and "Highlightly quota" sections.
+ * Trimmed 2026-09-03 to make room for NBA/NFL/tennis within the same monthly budget:
+ * dropped Copa America (out of season anyway, no active edition) and, to free up
+ * enough headroom, the two lowest-volume domestic leagues remaining after the
+ * continental cups — Portugal Primeira Liga and Chile Primera Division. The
+ * continental cups (Libertadores/Sudamericana) stay per the original 2026-09-02
+ * migration's decision to protect them. Redo the budget math in CLAUDE.md's "The Odds
+ * API quota" section before adding any of these back.
  */
 export const DEFAULT_WATCHED_SPORT_KEYS = [
   // Europe — top flights
@@ -30,7 +21,6 @@ export const DEFAULT_WATCHED_SPORT_KEYS = [
   "soccer_italy_serie_a", // Italy: Serie A
   "soccer_germany_bundesliga", // Germany: Bundesliga
   "soccer_france_ligue_one", // France: Ligue 1
-  "soccer_portugal_primeira_liga", // Portugal: Primeira Liga
   // Europe — continental cups
   "soccer_uefa_champs_league", // UEFA Champions League
   "soccer_uefa_europa_league", // UEFA Europa League
@@ -38,18 +28,51 @@ export const DEFAULT_WATCHED_SPORT_KEYS = [
   // South America — continental cups
   "soccer_conmebol_copa_libertadores", // Copa Libertadores
   "soccer_conmebol_copa_sudamericana", // Copa Sudamericana
-  "soccer_conmebol_copa_america", // Copa America (biennial — out of season most years, that's expected)
   // Latin America — top flights
   "soccer_argentina_primera_division", // Argentina: Liga Profesional
   "soccer_brazil_campeonato", // Brazil: Brasileiro Serie A
-  "soccer_chile_campeonato", // Chile: Primera Division
   "soccer_mexico_ligamx", // Mexico: Liga MX
+  // Other sports
+  "basketball_nba", // NBA
+  "americanfootball_nfl", // NFL
 ];
 
-export function watchedSportKeys(): string[] {
+/**
+ * Caps how many currently-active tennis tournaments get polled per run — a defensive
+ * bound, not a precise budget calculation, since concurrent-tournament count varies
+ * through the year (majors rarely overlap, but Masters/Premier-level events sometimes
+ * do). 2 covers the common case (ATP + WTA of the same active major) while keeping
+ * worst-case monthly cost bounded and predictable.
+ */
+const MAX_TENNIS_TOURNAMENTS_PER_RUN = 2;
+
+/**
+ * Reads sports_cache (refreshed earlier in the same /api/ingest/poll run, before this
+ * is called) for currently-active tennis tournaments. Best-effort: a DB hiccup here
+ * just means tennis is skipped for this run, not that the whole poll fails.
+ */
+async function watchedTennisSportKeys(): Promise<string[]> {
+  try {
+    const db = getDb();
+    const rows = await db
+      .select({ sportKey: sportsCache.sportKey })
+      .from(sportsCache)
+      .where(and(eq(sportsCache.group, "Tennis"), eq(sportsCache.active, true)));
+    return rows.map((r) => r.sportKey).slice(0, MAX_TENNIS_TOURNAMENTS_PER_RUN);
+  } catch {
+    return [];
+  }
+}
+
+export async function watchedSportKeys(): Promise<string[]> {
   const fromEnv = (process.env.WATCHED_SPORT_KEYS ?? "")
     .split(",")
     .map((key) => key.trim())
     .filter(Boolean);
-  return fromEnv.length > 0 ? fromEnv : DEFAULT_WATCHED_SPORT_KEYS;
+  // An explicit override means exactly this list — skip tennis auto-discovery so the
+  // override isn't silently padded with tournaments the caller didn't ask for.
+  if (fromEnv.length > 0) return fromEnv;
+
+  const tennis = await watchedTennisSportKeys();
+  return [...DEFAULT_WATCHED_SPORT_KEYS, ...tennis];
 }

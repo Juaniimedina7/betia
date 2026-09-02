@@ -83,10 +83,15 @@ export async function GET(req: Request) {
     if (sports.length > 0) {
       await db
         .insert(sportsCache)
-        .values(sports.map((s) => ({ sportKey: s.sportKey, group: s.group, title: s.title })))
+        .values(sports.map((s) => ({ sportKey: s.sportKey, group: s.group, title: s.title, active: s.active ?? false })))
         .onConflictDoUpdate({
           target: sportsCache.sportKey,
-          set: { group: sql`excluded.group`, title: sql`excluded.title`, updatedAt: sql`now()` },
+          set: {
+            group: sql`excluded.group`,
+            title: sql`excluded.title`,
+            active: sql`excluded.active`,
+            updatedAt: sql`now()`,
+          },
         });
     }
   } catch (err) {

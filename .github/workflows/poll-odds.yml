@@ -10,22 +10,38 @@ name: Poll odds once a day
 # modelo de costo distinto al de OddsPapi (que facturaba por llamada HTTP, con
 # lotes de 5 tournamentIds) — no asumas que la formula vieja sigue valiendo.
 #
-# /api/ingest/poll pide 1 market (h2h) x 16 sport_keys watcheados (ver
-# apps/web/lib/ingest/watched-sport-keys.ts) => 16 requests/corrida. A 1
-# corrida/dia son ~30 corridas/mes x 16 = ~480 requests/mes, dejando ~20/mes de
-# margen para workflow_dispatch manuales. El watchlist bajo de 20 a 16 ligas
-# durante la migracion de proveedor: Uruguay y Colombia no existen en The Odds
-# API (chequeado en vivo, no es un bug), y Belgica/Eredivisie se sacaron por
-# presupuesto — redo this math (runs/day x sport_keys x markets x 30) antes de
-# subir la cadencia, la lista de ligas o los markets pedidos.
+# /api/ingest/poll pide 1 market (h2h) x sport_keys watcheados (ver
+# apps/web/lib/ingest/watched-sport-keys.ts):
+#   - 13 ligas de futbol (fijas)
+#   - basketball_nba, americanfootball_nfl (fijas)
+#   - hasta 2 torneos de tenis ACTIVOS, descubiertos en vivo cada corrida via
+#     sports_cache.active — el tenis no tiene "una liga" continua como el
+#     futbol, cada torneo (Wimbledon, US Open, etc.) es su propio sport_key
+#     que solo esta activo ~1-2 semanas al anio, asi que esto es dinamico en
+#     vez de hardcodeado.
+# => 15 fijos + hasta 2 de tenis = ~15-17 requests/corrida. A 1 corrida/dia
+# (ver el horario abajo) son ~30 corridas/mes x 15-17 = ~450-510 requests/mes,
+# cerca del limite de 500/mes pero con margen la mayoria de los meses (el pico
+# de 17 solo pasa si hay 2 torneos de tenis simultaneos, lo cual no es todo el
+# anio). Bajado de 16 a 13 ligas de futbol el 2026-09-03 para hacer lugar a
+# NBA/NFL/tenis: se saco Copa America (sin edicion activa) ademas de Portugal
+# Primeira Liga y Chile Primera (las dos ligas de menor volumen que quedaban,
+# las copas continentales se mantienen a proposito). Redo this math (runs/day
+# x sport_keys x markets x 30) antes de subir la cadencia, la lista de ligas,
+# el cap de tenis o los markets pedidos.
 #
 # DEFAULT_BOOKMAKERS (apps/web/app/api/ingest/poll/route.ts) tiene 7 casas
 # (pinnacle, unibet, betano_uk, codere_it, betsson, betway, espnbet) — subirlo
 # de 2 a 7 NO cambia el presupuesto de arriba, porque el costo es por market
 # pedido, no por bookmaker.
+#
+# Corre 1 vez/dia a las 17:00 hora Argentina (UTC-3) = 20:00 UTC — elegido
+# 2026-09-03 en vez del horario anterior (09:00 UTC / 06:00 ART) para que la
+# actualizacion caiga mas cerca de la ventana en la que la audiencia principal
+# (Argentina) usa la plataforma.
 on:
   schedule:
-    - cron: "0 9 * * *"
+    - cron: "0 20 * * *"
   workflow_dispatch: # permite dispararlo a mano desde la pestania Actions
 
 jobs:

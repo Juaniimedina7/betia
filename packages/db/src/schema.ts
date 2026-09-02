@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -125,11 +126,20 @@ export const betSlipLegs = pgTable(
   ],
 );
 
-/** Best-effort backup of the last known /v4/sports response, used when the live API is unreachable. */
+/**
+ * Best-effort backup of the last known /v4/sports response, used when the live API is
+ * unreachable. `active` matters most for tennis: The Odds API has no year-round
+ * "ATP/WTA tour" sport_key the way soccer has stable leagues — each tournament
+ * (Wimbledon, US Open, etc.) is its own sport_key that's only `active` during that
+ * ~1-2 week window each year. `apps/web/lib/ingest/watched-sport-keys.ts` reads this
+ * column every run to discover which tennis tournaments are currently worth polling,
+ * instead of hardcoding a tournament list the way soccer/NBA/NFL are hardcoded.
+ */
 export const sportsCache = pgTable("sports_cache", {
   sportKey: text("sport_key").primaryKey(),
   group: text("group").notNull(),
   title: text("title").notNull(),
+  active: boolean("active").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

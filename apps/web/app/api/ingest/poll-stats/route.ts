@@ -50,7 +50,10 @@ export async function GET(req: Request) {
   }
 
   const db = getDb();
-  const mappedSportKeys = watchedSportKeys().filter((key) => key in LEAGUE_MAP);
+  // watchedSportKeys() now spans NBA/NFL/tennis too (see CLAUDE.md's "Multi-sport"
+  // section) — LEAGUE_MAP only has soccer entries, so this filter naturally keeps
+  // Highlightly stats scoped to soccer without any extra logic here.
+  const mappedSportKeys = (await watchedSportKeys()).filter((key) => key in LEAGUE_MAP);
 
   const errors: { stage: string; sportKey?: string; message: string }[] = [];
   let leaguesRefreshed = 0;
