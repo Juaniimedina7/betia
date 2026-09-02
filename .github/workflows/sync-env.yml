@@ -1,0 +1,31 @@
+name: Sync env to Vercel
+
+# Manual, on-demand sync of GitHub secrets → Vercel. The deploy workflow already
+# runs this automatically on every push; use this to sync without deploying.
+on:
+  workflow_dispatch:
+
+env:
+  VERCEL_ORG_ID: team_klaQ4k4O3uyzx9gNCCsGWN91
+  VERCEL_PROJECT_ID: prj_9S2peNPSAokYC3YpeOdX6MVCzEXJ
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Sync missing env vars to Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: node .github/scripts/sync-env.mjs
