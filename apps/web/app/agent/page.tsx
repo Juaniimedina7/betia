@@ -7,6 +7,7 @@ import { DefaultChatTransport } from "ai";
 import { AgentToolResult } from "@/components/agent-tool-result";
 import { AgentMarkdown } from "@/components/agent-markdown";
 import { ChatErrorBanner } from "@/components/chat-error-banner";
+import { isToolPart } from "@/lib/agent-tool-output";
 
 interface Usage {
   planId: string;
@@ -124,7 +125,7 @@ export default function AgentPage() {
                     if (part.type === "text") {
                       return <AgentMarkdown key={i} text={part.text} />;
                     }
-                    if (part.type.startsWith("tool-")) {
+                    if (isToolPart(part)) {
                       return <AgentToolResult key={i} part={part} />;
                     }
                     return null;

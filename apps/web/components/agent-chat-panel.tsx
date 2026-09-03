@@ -6,6 +6,7 @@ import type { UIMessage } from "ai";
 import { AgentToolResult } from "@/components/agent-tool-result";
 import { AgentMarkdown } from "@/components/agent-markdown";
 import { ChatErrorBanner } from "@/components/chat-error-banner";
+import { isToolPart } from "@/lib/agent-tool-output";
 
 const SUGGESTIONS = [
   "Armame una combinada de 50x con fútbol de hoy",
@@ -93,7 +94,7 @@ export function AgentChatPanel({
                   if (part.type === "text") {
                     return <AgentMarkdown key={i} text={part.text} />;
                   }
-                  if (part.type.startsWith("tool-")) {
+                  if (isToolPart(part)) {
                     // shrink-0 is load-bearing: without it the flex column
                     // squeezes result cards and clips their bottom row.
                     return (

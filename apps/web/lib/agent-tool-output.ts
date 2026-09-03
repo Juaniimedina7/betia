@@ -1,6 +1,8 @@
-/** A `tool-<name>` UIMessage part, loosely typed across every AI SDK v7 tool state. */
+/** A tool UIMessage part, loosely typed across every AI SDK v7 tool state. */
 export interface ToolPart {
   type: string;
+  /** Present on `dynamic-tool` parts (MCP tools) — the real tool name. */
+  toolName?: string;
   state?: string;
   input?: unknown;
   output?: unknown;
@@ -8,12 +10,20 @@ export interface ToolPart {
   errorText?: string;
 }
 
+/**
+ * Recognizes both static (`tool-<name>`) and dynamic (`dynamic-tool`) parts. MCP
+ * tools — which is all of ours, loaded at runtime via createMCPClient — surface as
+ * `dynamic-tool` in AI SDK v7, so a `type.startsWith("tool-")` check alone misses
+ * every one of them (and no result card ever renders).
+ */
 export function isToolPart(part: unknown): part is ToolPart {
-  return !!part && typeof part === "object" && typeof (part as { type?: unknown }).type === "string" && (part as ToolPart).type.startsWith("tool-");
+  if (!part || typeof part !== "object") return false;
+  const type = (part as { type?: unknown }).type;
+  return typeof type === "string" && (type === "dynamic-tool" || type.startsWith("tool-"));
 }
 
 export function toolNameOf(part: ToolPart): string {
-  return part.type.replace("tool-", "");
+  return part.type === "dynamic-tool" ? (part.toolName ?? "") : part.type.replace("tool-", "");
 }
 
 /**
