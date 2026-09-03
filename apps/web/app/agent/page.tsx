@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { AcceptableComboTicket } from "@/components/combo-ticket-accept";
-import { extractCombo } from "@/lib/extract-combo";
+import { AgentToolResult } from "@/components/agent-tool-result";
+import { ChatErrorBanner } from "@/components/chat-error-banner";
 
 interface Usage {
   planId: string;
@@ -128,31 +128,7 @@ export default function AgentPage() {
                       );
                     }
                     if (part.type.startsWith("tool-")) {
-                      const toolName = part.type.replace("tool-", "");
-                      const state = "state" in part ? (part.state as string) : "";
-                      const combo = extractCombo(part);
-                      if (combo && combo.multiplier > 0) {
-                        return (
-                          <AcceptableComboTicket
-                            key={i}
-                            legs={combo.legs}
-                            multiplier={combo.multiplier}
-                            avgEdge={combo.avgEdge}
-                            avgStatisticalProbability={combo.avgStatisticalProbability}
-                            label="Combinada del agente"
-                          />
-                        );
-                      }
-                      return (
-                        <div
-                          key={i}
-                          className="flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white/[0.02] px-3 py-2 text-xs text-[var(--color-ink-muted)]"
-                        >
-                          <span className="live-dot" style={{ background: "var(--color-gold)" }} />
-                          <span className="tnum">{toolName}</span>
-                          {state && <span className="text-[var(--color-ink-faint)]">· {state}</span>}
-                        </div>
-                      );
+                      return <AgentToolResult key={i} part={part} />;
                     }
                     return null;
                   })}
@@ -169,11 +145,7 @@ export default function AgentPage() {
           </div>
         )}
 
-        {error && (
-          <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
-            Algo falló armando la respuesta. Probá de nuevo en un momento.
-          </div>
-        )}
+        {error && <ChatErrorBanner error={error} />}
         <div ref={bottomRef} />
       </div>
 

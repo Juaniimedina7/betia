@@ -1,4 +1,5 @@
 import type { TicketLeg } from "@/components/combo-ticket";
+import { getToolOutput } from "@/lib/agent-tool-output";
 
 interface RawLeg {
   fixtureId?: string;
@@ -60,14 +61,7 @@ export function extractCombo(
   part: unknown,
 ): { legs: TicketLeg[]; multiplier: number; avgEdge?: number; avgStatisticalProbability?: number } | null {
   try {
-    const p = part as { output?: unknown; result?: unknown };
-    let data: unknown = p.output ?? p.result;
-    if (data && typeof data === "object" && "content" in data) {
-      const content = (data as { content?: Array<{ text?: string }> }).content;
-      const text = content?.[0]?.text;
-      if (text) data = JSON.parse(text);
-    }
-    if (typeof data === "string") data = JSON.parse(data);
+    const data = getToolOutput(part);
     const d = data as {
       legs?: RawLeg[];
       combinedOddsDecimal?: number;

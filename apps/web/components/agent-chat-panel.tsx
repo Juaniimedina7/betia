@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { UIMessage } from "ai";
-import { AcceptableComboTicket } from "@/components/combo-ticket-accept";
-import { extractCombo } from "@/lib/extract-combo";
+import { AgentToolResult } from "@/components/agent-tool-result";
+import { ChatErrorBanner } from "@/components/chat-error-banner";
 
 const SUGGESTIONS = [
   "Armame una combinada de 50x con fútbol de hoy",
@@ -97,32 +97,11 @@ export function AgentChatPanel({
                     );
                   }
                   if (part.type.startsWith("tool-")) {
-                    const toolName = part.type.replace("tool-", "");
-                    const state = "state" in part ? (part.state as string) : "";
-                    const combo = extractCombo(part);
-                    if (combo && combo.multiplier > 0) {
-                      // shrink-0 is load-bearing: without it the flex column
-                      // squeezes the ticket and clips the multiplier row.
-                      return (
-                        <div key={i} className="shrink-0">
-                          <AcceptableComboTicket
-                            legs={combo.legs}
-                            multiplier={combo.multiplier}
-                            avgEdge={combo.avgEdge}
-                            avgStatisticalProbability={combo.avgStatisticalProbability}
-                            label="Combinada del agente"
-                          />
-                        </div>
-                      );
-                    }
+                    // shrink-0 is load-bearing: without it the flex column
+                    // squeezes result cards and clips their bottom row.
                     return (
-                      <div
-                        key={i}
-                        className="flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white/[0.02] px-3 py-2 text-xs text-[var(--color-ink-muted)]"
-                      >
-                        <span className="live-dot" style={{ background: "var(--color-gold)" }} />
-                        <span className="tnum">{toolName}</span>
-                        {state && <span className="text-[var(--color-ink-faint)]">· {state}</span>}
+                      <div key={i} className="shrink-0">
+                        <AgentToolResult part={part} />
                       </div>
                     );
                   }
@@ -140,11 +119,7 @@ export function AgentChatPanel({
           </div>
         )}
 
-        {error && (
-          <div className="shrink-0 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-            Algo falló armando la respuesta. Probá de nuevo en un momento.
-          </div>
-        )}
+        {error && <ChatErrorBanner error={error} />}
       </div>
 
       {outOfRuns ? (

@@ -2,16 +2,7 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { listUserBetSlips } from "@bet/mcp-tools";
 import { Reveal } from "@/components/reveal";
-
-const STATUS: Record<string, { label: string; tone: string }> = {
-  draft: { label: "Borrador", tone: "var(--color-ink-muted)" },
-  saved: { label: "Guardada", tone: "var(--color-ink)" },
-  placed_by_user: { label: "Apostada", tone: "var(--color-gold)" },
-  won: { label: "Ganada", tone: "var(--color-edge)" },
-  lost: { label: "Perdida", tone: "var(--color-danger)" },
-  void: { label: "Anulada", tone: "var(--color-ink-muted)" },
-  push: { label: "Push", tone: "var(--color-ink-muted)" },
-};
+import { betSlipStatusLabel } from "@/lib/bet-slip-status";
 
 export default async function BetsPage() {
   let userId: string | null = null;
@@ -56,7 +47,7 @@ export default async function BetsPage() {
       ) : (
         <div className="mt-8 flex flex-col gap-3">
           {betSlips.map((slip, i) => {
-            const status = STATUS[slip.status] ?? { label: slip.status, tone: "var(--color-ink-muted)" };
+            const status = betSlipStatusLabel(slip.status);
             return (
               <Reveal key={slip.id} delay={Math.min(i * 40, 400)}>
                 <Link href={`/apuestas/${slip.id}`} className="card card-hover flex items-center justify-between gap-4 px-5 py-4">

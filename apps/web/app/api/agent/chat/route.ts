@@ -55,5 +55,13 @@ export async function POST(req: Request) {
     onEnd: async () => {
       await mcpClient.close();
     },
+    // Default is `() => "An error occurred."` — a mid-stream failure (Anthropic API
+    // error, uncaught tool exception) would otherwise surface that fixed English
+    // string as-is to the chat UI. Log the real error server-side and hand the client
+    // a safe, distinguishable Spanish message instead.
+    onError: (error) => {
+      console.error("[agent/chat] stream error", error);
+      return "No pudimos completar la respuesta del agente. Probá de nuevo en un momento.";
+    },
   });
 }
