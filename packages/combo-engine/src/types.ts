@@ -14,6 +14,11 @@ export interface CandidateLeg {
   fairPriceDecimal: number;
   fairProbability: number;
   edgePct: number;
+  /** Poisson-model probability (0-1) that this specific outcome happens, when computable
+   * (h2h market, sport mapped in LEAGUE_MAP, enough historical data) — completely
+   * distinct from `fairProbability`'s market-implied de-vig number. Undefined for
+   * spreads/totals or unmapped sports (NBA/NFL/tennis today). */
+  statisticalProbability?: number;
 }
 
 export type RiskProfile = "conservative" | "balanced" | "aggressive";
@@ -34,6 +39,9 @@ export interface ComboResult {
   combinedOddsDecimal: number;
   legCount: number;
   averageEdgePct: number;
+  /** Average `statisticalProbability` over only the legs that have one — undefined if
+   * none of the legs in this combo have a statistical estimate. */
+  averageStatisticalProbability?: number;
   toleranceMet: boolean;
   warning?: string;
 }

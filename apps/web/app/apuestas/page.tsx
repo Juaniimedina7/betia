@@ -59,7 +59,7 @@ export default async function BetsPage() {
             const status = STATUS[slip.status] ?? { label: slip.status, tone: "var(--color-ink-muted)" };
             return (
               <Reveal key={slip.id} delay={Math.min(i * 40, 400)}>
-                <Link href={`/bets/${slip.id}`} className="card card-hover flex items-center justify-between gap-4 px-5 py-4">
+                <Link href={`/apuestas/${slip.id}`} className="card card-hover flex items-center justify-between gap-4 px-5 py-4">
                   <div>
                     <p className="font-medium">{slip.title ?? "Combinada"}</p>
                     <p className="mt-0.5 text-xs" style={{ color: status.tone }}>{status.label}</p>

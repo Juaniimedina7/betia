@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { UIMessage } from "ai";
-import { ComboTicket } from "@/components/combo-ticket";
+import { AcceptableComboTicket } from "@/components/combo-ticket-accept";
 import { extractCombo } from "@/lib/extract-combo";
 
 const SUGGESTIONS = [
@@ -105,10 +105,11 @@ export function AgentChatPanel({
                       // squeezes the ticket and clips the multiplier row.
                       return (
                         <div key={i} className="shrink-0">
-                          <ComboTicket
+                          <AcceptableComboTicket
                             legs={combo.legs}
                             multiplier={combo.multiplier}
                             avgEdge={combo.avgEdge}
+                            avgStatisticalProbability={combo.avgStatisticalProbability}
                             label="Combinada del agente"
                           />
                         </div>

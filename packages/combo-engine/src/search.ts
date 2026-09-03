@@ -1,4 +1,4 @@
-import { filterByRiskProfile, rankByEdge } from "./edge";
+import { filterByRiskProfile, rankByConfidence } from "./edge";
 import type { BuildComboConstraints, CandidateLeg, ComboResult } from "./types";
 
 const DEFAULT_MIN_LEGS = 2;
@@ -17,15 +17,22 @@ function combinedOdds(legs: CandidateLeg[]): number {
   return legs.reduce((product, leg) => product * leg.priceDecimal, 1);
 }
 
+function averageStatisticalProbability(legs: CandidateLeg[]): number | undefined {
+  const withStats = legs.filter((leg) => leg.statisticalProbability !== undefined);
+  if (withStats.length === 0) return undefined;
+  return withStats.reduce((sum, leg) => sum + leg.statisticalProbability!, 0) / withStats.length;
+}
+
 /**
- * MVP simplification: one candidate leg per fixture (the highest-edge one).
- * This makes the anti-correlation rule ("never two legs from the same
- * fixture") automatically satisfied by construction, at the cost of not
- * considering alternate markets on the same match.
+ * MVP simplification: one candidate leg per fixture (the most-likely-to-hit one, by
+ * statistical probability when available, falling back to market edge otherwise). This
+ * makes the anti-correlation rule ("never two legs from the same fixture") automatically
+ * satisfied by construction, at the cost of not considering alternate markets on the
+ * same match.
  */
 function bestLegPerFixture(legs: CandidateLeg[]): CandidateLeg[] {
   const byFixture = new Map<string, CandidateLeg>();
-  for (const leg of rankByEdge(legs)) {
+  for (const leg of rankByConfidence(legs)) {
     if (!byFixture.has(leg.fixtureId)) byFixture.set(leg.fixtureId, leg);
   }
   return [...byFixture.values()];
@@ -84,7 +91,7 @@ export function buildCombo(allCandidates: CandidateLeg[], constraints: BuildComb
   const riskProfile = constraints.riskProfile ?? "balanced";
   const tolerance = constraints.tolerance ?? DEFAULT_TOLERANCE;
 
-  const pool = rankByEdge(
+  const pool = rankByConfidence(
     filterByRiskProfile(
       bestLegPerFixture(allCandidates.filter((leg) => !excluded.has(leg.fixtureId))),
       riskProfile,
@@ -144,6 +151,7 @@ export function buildCombo(allCandidates: CandidateLeg[], constraints: BuildComb
     combinedOddsDecimal: finalOdds,
     legCount: best.legs.length,
     averageEdgePct: averageEdge(best.legs),
+    averageStatisticalProbability: averageStatisticalProbability(best.legs),
     toleranceMet,
     warning: toleranceMet
       ? undefined

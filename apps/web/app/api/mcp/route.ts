@@ -93,7 +93,7 @@ const handler = createMcpHandler(
       "build_combo",
       {
         description:
-          "Deterministically build a parlay/combo hitting a target multiplier or leg count from cached odds, ranked by edge, never combining two legs from the same fixture. Without `from`/`to` it considers every cached fixture regardless of kickoff date — pass them (ISO 8601 UTC) to scope to a specific day/window. Without `bookmaker` each leg independently shops for the best cached price, so legs in one combo can come from different bookmakers — pass `bookmaker` to force every leg onto one specific book instead.",
+          "Deterministically build a parlay/combo hitting a target multiplier or leg count from cached odds, ranked by real statistical (Poisson) win probability where available and market edge otherwise, never combining two legs from the same fixture. Every leg in the returned combo always comes from a single bookmaker so the user can actually place the real bet there. Without `bookmaker`, every cached bookmaker is tried and the best resulting combo is kept; pass `bookmaker` to force a specific one instead. Without `from`/`to` it considers every cached fixture regardless of kickoff date — pass them (ISO 8601 UTC) to scope to a specific day/window.",
         inputSchema: buildComboInput,
       },
       async (input) => jsonContent(await buildComboTool(input)),

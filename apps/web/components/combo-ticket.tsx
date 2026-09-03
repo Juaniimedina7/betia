@@ -3,6 +3,27 @@ export interface TicketLeg {
   detail?: string;
   price: number;
   edgePct?: number;
+  /** Real Poisson statistical probability (0-1) of this specific outcome, when the
+   * sport/market is covered by the stats model — distinct from edgePct (market-implied). */
+  statisticalProbability?: number;
+  /** Present only when this leg came straight from a live build_combo result with every
+   * field save_bet_slip needs — absent for legs re-derived from an already-saved bet
+   * slip. Used exclusively to power the "Aceptar apuesta" button. */
+  raw?: {
+    fixtureId: string;
+    sportKey: string;
+    homeTeam?: string;
+    awayTeam?: string;
+    startTime: string;
+    marketId: string;
+    outcomeName: string;
+    point?: number;
+    selectionLabel: string;
+    bookmaker: string;
+    priceDecimal: number;
+    fairPriceDecimal?: number;
+    edgePct?: number;
+  };
 }
 
 /**
@@ -14,6 +35,7 @@ export function ComboTicket({
   legs,
   multiplier,
   avgEdge,
+  avgStatisticalProbability,
   label = "Ticket BETIA",
   note,
   className = "",
@@ -21,6 +43,10 @@ export function ComboTicket({
   legs: TicketLeg[];
   multiplier: number;
   avgEdge?: number;
+  /** Average real statistical (Poisson) probability across legs that have one — kept
+   * visually separate from avgEdge, never averaged together (market vs. statistical
+   * probability are two distinct numbers, see parlay-agent.ts's system prompt). */
+  avgStatisticalProbability?: number;
   label?: string;
   note?: string;
   className?: string;
@@ -69,8 +95,19 @@ export function ComboTicket({
                 <p className="truncate text-xs text-[var(--color-ink-muted)]">{leg.detail}</p>
               )}
             </div>
+            {typeof leg.statisticalProbability === "number" && (
+              <span
+                className="chip tnum hidden sm:inline-flex"
+                title="Probabilidad estadística (modelo Poisson)"
+              >
+                {(leg.statisticalProbability * 100).toFixed(0)}% prob.
+              </span>
+            )}
             {typeof leg.edgePct === "number" && leg.edgePct > 0 && (
-              <span className="chip chip-edge tnum hidden sm:inline-flex">
+              <span
+                className="chip chip-edge tnum hidden sm:inline-flex"
+                title="Edge vs. precio justo de mercado"
+              >
                 +{leg.edgePct.toFixed(1)}%
               </span>
             )}
@@ -84,11 +121,18 @@ export function ComboTicket({
       <div className="flex items-end justify-between gap-4 border-t border-[var(--line-strong)] px-5 py-4">
         <div>
           <p className="eyebrow mb-1">Cuota combinada</p>
-          {typeof avgEdge === "number" && (
-            <span className="chip chip-edge tnum">
-              edge medio +{avgEdge.toFixed(1)}%
-            </span>
-          )}
+          <div className="flex flex-wrap gap-1.5">
+            {typeof avgStatisticalProbability === "number" && (
+              <span className="chip tnum" title="Probabilidad estadística promedio (modelo Poisson)">
+                prob. estadística {(avgStatisticalProbability * 100).toFixed(0)}%
+              </span>
+            )}
+            {typeof avgEdge === "number" && (
+              <span className="chip chip-edge tnum" title="Edge de mercado promedio">
+                edge medio +{avgEdge.toFixed(1)}%
+              </span>
+            )}
+          </div>
         </div>
         <div className="text-right leading-none">
           <span

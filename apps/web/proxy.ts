@@ -3,10 +3,11 @@ import { NextResponse } from "next/server";
 
 const isProtectedRoute = createRouteMatcher([
   "/agent(.*)",
-  "/bets(.*)",
+  "/apuestas(.*)",
   "/settings(.*)",
   "/admin(.*)",
   "/api/agent(.*)",
+  "/api/bets(.*)",
 ]);
 
 // Without Clerk configured, clerkMiddleware() throws on every request. Fall back

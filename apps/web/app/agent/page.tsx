@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { ComboTicket } from "@/components/combo-ticket";
+import { AcceptableComboTicket } from "@/components/combo-ticket-accept";
 import { extractCombo } from "@/lib/extract-combo";
 
 interface Usage {
@@ -133,11 +133,12 @@ export default function AgentPage() {
                       const combo = extractCombo(part);
                       if (combo && combo.multiplier > 0) {
                         return (
-                          <ComboTicket
+                          <AcceptableComboTicket
                             key={i}
                             legs={combo.legs}
                             multiplier={combo.multiplier}
                             avgEdge={combo.avgEdge}
+                            avgStatisticalProbability={combo.avgStatisticalProbability}
                             label="Combinada del agente"
                           />
                         );

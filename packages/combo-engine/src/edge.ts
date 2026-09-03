@@ -10,6 +10,24 @@ export function rankByEdge(legs: CandidateLeg[]): CandidateLeg[] {
   return [...legs].sort((a, b) => b.edgePct - a.edgePct);
 }
 
+/**
+ * Ranks legs by real chance of hitting first: higher `statisticalProbability` wins: legs
+ * without a statistical estimate (unmapped sport, insufficient data, non-h2h market)
+ * sort after every leg that has one, falling back to `edgePct` as the tiebreaker among
+ * themselves. This is the primary ordering `buildCombo` uses to pick candidates — it
+ * always searches for the most-likely-to-happen selection first, only leaning on market
+ * edge where no statistical read exists.
+ */
+export function rankByConfidence(legs: CandidateLeg[]): CandidateLeg[] {
+  return [...legs].sort((a, b) => {
+    const aHas = a.statisticalProbability !== undefined;
+    const bHas = b.statisticalProbability !== undefined;
+    if (aHas && bHas) return b.statisticalProbability! - a.statisticalProbability!;
+    if (aHas !== bHas) return aHas ? -1 : 1;
+    return b.edgePct - a.edgePct;
+  });
+}
+
 export function filterByRiskProfile(
   legs: CandidateLeg[],
   riskProfile: RiskProfile = "balanced",

@@ -5,7 +5,7 @@ import { getUserBetSlip, updateBetSlipOutcome } from "@bet/mcp-tools";
 import { notFound } from "next/navigation";
 import { ComboTicket } from "@/components/combo-ticket";
 
-export default async function BetSlipPage({ params }: PageProps<"/bets/[betSlipId]">) {
+export default async function BetSlipPage({ params }: PageProps<"/apuestas/[betSlipId]">) {
   const { betSlipId } = await params;
   const { userId } = await auth();
   const { betSlip, legs } = await getUserBetSlip({ betSlipId }, { userId: userId! });
@@ -17,12 +17,12 @@ export default async function BetSlipPage({ params }: PageProps<"/bets/[betSlipI
     const { userId } = await auth();
     const outcome = formData.get("outcome") as "won" | "lost" | "void";
     await updateBetSlipOutcome({ betSlipId, userMarkedOutcome: outcome }, { userId: userId! });
-    revalidatePath(`/bets/${betSlipId}`);
+    revalidatePath(`/apuestas/${betSlipId}`);
   }
 
   return (
     <div className="container-page max-w-2xl py-14">
-      <Link href="/bets" className="text-sm text-[var(--color-ink-muted)] transition-colors hover:text-[var(--color-ink)]">
+      <Link href="/apuestas" className="text-sm text-[var(--color-ink-muted)] transition-colors hover:text-[var(--color-ink)]">
         ← Mis apuestas
       </Link>
 

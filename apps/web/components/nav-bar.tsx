@@ -6,7 +6,7 @@ const LINKS = [
   { href: "/odds", label: "Cuotas" },
   { href: "/agent", label: "Agente" },
   { href: "/pricing", label: "Precios" },
-  { href: "/bets", label: "Mis apuestas" },
+  { href: "/apuestas", label: "Mis apuestas" },
 ];
 
 export async function NavBar({ clerkEnabled }: { clerkEnabled: boolean }) {
