@@ -146,7 +146,7 @@ export class OddsApiClient {
 
   private async request<T>(
     path: string,
-    params: Record<string, string | number | string[] | undefined> = {},
+    params: Record<string, string | number | boolean | string[] | undefined> = {},
   ): Promise<T> {
     const MAX_ATTEMPTS = 3;
     let lastError: unknown;
@@ -166,7 +166,7 @@ export class OddsApiClient {
 
   private async requestOnce<T>(
     path: string,
-    params: Record<string, string | number | string[] | undefined>,
+    params: Record<string, string | number | boolean | string[] | undefined>,
   ): Promise<T> {
     const url = new URL(this.host + path);
     url.searchParams.set("apiKey", this.apiKey);
