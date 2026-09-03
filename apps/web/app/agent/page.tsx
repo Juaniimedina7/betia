@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { AgentToolResult } from "@/components/agent-tool-result";
+import { AgentMarkdown } from "@/components/agent-markdown";
 import { ChatErrorBanner } from "@/components/chat-error-banner";
 
 interface Usage {
@@ -121,11 +122,7 @@ export default function AgentPage() {
                 >
                   {message.parts.map((part, i) => {
                     if (part.type === "text") {
-                      return (
-                        <p key={i} className="whitespace-pre-wrap text-sm leading-relaxed">
-                          {part.text}
-                        </p>
-                      );
+                      return <AgentMarkdown key={i} text={part.text} />;
                     }
                     if (part.type.startsWith("tool-")) {
                       return <AgentToolResult key={i} part={part} />;

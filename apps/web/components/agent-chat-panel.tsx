@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { UIMessage } from "ai";
 import { AgentToolResult } from "@/components/agent-tool-result";
+import { AgentMarkdown } from "@/components/agent-markdown";
 import { ChatErrorBanner } from "@/components/chat-error-banner";
 
 const SUGGESTIONS = [
@@ -90,11 +91,7 @@ export function AgentChatPanel({
               >
                 {message.parts.map((part, i) => {
                   if (part.type === "text") {
-                    return (
-                      <p key={i} className="whitespace-pre-wrap text-sm leading-relaxed">
-                        {part.text}
-                      </p>
-                    );
+                    return <AgentMarkdown key={i} text={part.text} />;
                   }
                   if (part.type.startsWith("tool-")) {
                     // shrink-0 is load-bearing: without it the flex column
