@@ -117,6 +117,7 @@ export const betSlipLegs = pgTable(
     status: text("status", { enum: ["pending", "won", "lost", "void"] })
       .notNull()
       .default("pending"),
+    deepLink: text("deep_link"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

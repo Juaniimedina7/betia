@@ -40,6 +40,7 @@ export default async function BetSlipPage({ params }: PageProps<"/apuestas/[betS
             detail: leg.bookmaker,
             price: Number(leg.priceDecimal),
             edgePct: leg.edgePct != null ? Number(leg.edgePct) : undefined,
+            deepLink: leg.deepLink ?? undefined,
           }))}
           multiplier={Number(betSlip.combinedOddsDecimal)}
           label={`Estado: ${betSlip.status}`}

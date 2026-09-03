@@ -12,11 +12,13 @@ export interface OutcomeQuote {
   price: number;
   /** Line for spreads/totals markets (e.g. the handicap or the over/under total). Absent for h2h. */
   point?: number;
+  link?: string;
 }
 
 export interface MarketQuote {
   lastUpdate?: string;
   outcomes: OutcomeQuote[];
+  link?: string;
 }
 
 export interface BookmakerQuote {
@@ -36,6 +38,7 @@ export interface Event {
   homeTeam: string;
   awayTeam: string;
   bookmakerOdds: BookmakerOdds;
+  link?: string;
 }
 
 export interface ListEventsParams {
@@ -48,6 +51,7 @@ export interface GetSportOddsParams {
   markets?: string[];
   oddsFormat?: "decimal" | "american";
   dateFormat?: "iso" | "unix";
+  includeLinks?: boolean;
 }
 
 export interface GetEventOddsParams {

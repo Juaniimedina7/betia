@@ -1,4 +1,30 @@
 import { defineConfig } from "drizzle-kit";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+
+if (!process.env.DATABASE_URL) {
+  const possiblePaths = [
+    resolve(process.cwd(), ".env"),
+    resolve(process.cwd(), ".env.local"),
+    resolve(process.cwd(), "../../.env"),
+    resolve(process.cwd(), "../../.env.local"),
+    resolve(process.cwd(), "../../apps/web/.env"),
+    resolve(process.cwd(), "../../apps/web/.env.local"),
+    resolve(process.cwd(), "apps/web/.env"),
+    resolve(process.cwd(), "apps/web/.env.local"),
+  ];
+
+  for (const envPath of possiblePaths) {
+    if (existsSync(envPath)) {
+      try {
+        process.loadEnvFile(envPath);
+        if (process.env.DATABASE_URL) break;
+      } catch {
+        // ignore errors reading invalid/unformatted env files
+      }
+    }
+  }
+}
 
 export default defineConfig({
   schema: "./src/schema.ts",

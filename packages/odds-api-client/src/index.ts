@@ -32,12 +32,14 @@ interface RawOutcome {
   name: string;
   price: number;
   point?: number;
+  link?: string;
 }
 
 interface RawMarket {
   key: string;
   last_update?: string;
   outcomes: RawOutcome[];
+  link?: string;
 }
 
 interface RawBookmaker {
@@ -55,6 +57,7 @@ interface RawEvent {
   home_team: string;
   away_team: string;
   bookmakers?: RawBookmaker[];
+  link?: string;
 }
 
 function normalizeSport(raw: RawSport): Sport {
@@ -75,7 +78,8 @@ function normalizeBookmakerOdds(rawBookmakers: RawBookmaker[] | undefined): Book
     for (const rawMarket of rawBookmaker.markets) {
       markets[rawMarket.key] = {
         lastUpdate: rawMarket.last_update,
-        outcomes: rawMarket.outcomes.map((o) => ({ name: o.name, price: o.price, point: o.point })),
+        outcomes: rawMarket.outcomes.map((o) => ({ name: o.name, price: o.price, point: o.point, link: o.link })),
+        link: rawMarket.link,
       };
     }
     const quote: BookmakerQuote = { title: rawBookmaker.title, lastUpdate: rawBookmaker.last_update, markets };
@@ -93,6 +97,7 @@ function normalizeEvent(raw: RawEvent): Event {
     homeTeam: raw.home_team,
     awayTeam: raw.away_team,
     bookmakerOdds: normalizeBookmakerOdds(raw.bookmakers),
+    link: raw.link,
   };
 }
 
@@ -232,6 +237,7 @@ export class OddsApiClient {
       markets: params.markets ?? ["h2h"],
       oddsFormat: params.oddsFormat ?? "decimal",
       dateFormat: params.dateFormat ?? "iso",
+      includeLinks: params.includeLinks,
     });
     return raw.map(normalizeEvent);
   }

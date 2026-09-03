@@ -60,6 +60,7 @@ function renderUserBetSlip(output: unknown) {
         detail: leg.bookmaker,
         price: Number(leg.priceDecimal),
         edgePct: leg.edgePct != null ? Number(leg.edgePct) : undefined,
+        deepLink: (leg as any).deepLink,
       }))}
       multiplier={Number(o.betSlip.combinedOddsDecimal ?? 0)}
       label={`Estado: ${o.betSlip.status}`}

@@ -35,6 +35,7 @@ export async function GET(req: Request) {
     watchedSportKeys,
     bookmakers: bookmakers.length > 0 ? bookmakers : DEFAULT_BOOKMAKERS,
     markets: MARKETS,
+    includeLinks: true,
   });
 
   const db = getDb();

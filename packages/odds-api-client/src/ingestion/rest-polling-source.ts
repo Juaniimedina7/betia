@@ -8,6 +8,7 @@ export interface RestPollingSourceOptions {
   /** Bookmakers to request. Unlike OddsPapi, one call returns every requested bookmaker's odds together. */
   bookmakers: string[];
   markets?: string[];
+  includeLinks?: boolean;
 }
 
 /**
@@ -46,6 +47,7 @@ export class RestPollingSource implements OddsIngestionSource {
       const sportEvents = await this.options.client.getSportOdds(sportKey, {
         bookmakers: this.options.bookmakers,
         markets: this.options.markets,
+        includeLinks: this.options.includeLinks,
       });
       events.push(...sportEvents);
     }

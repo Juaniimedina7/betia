@@ -6,6 +6,8 @@ export interface TicketLeg {
   /** Real Poisson statistical probability (0-1) of this specific outcome, when the
    * sport/market is covered by the stats model — distinct from edgePct (market-implied). */
   statisticalProbability?: number;
+  /** Deep link pointing directly to the event/market on the bookmaker's site. */
+  deepLink?: string;
   /** Present only when this leg came straight from a live build_combo result with every
    * field save_bet_slip needs — absent for legs re-derived from an already-saved bet
    * slip. Used exclusively to power the "Aceptar apuesta" button. */
@@ -111,9 +113,22 @@ export function ComboTicket({
                 +{leg.edgePct.toFixed(1)}%
               </span>
             )}
-            <span className="tnum w-14 text-right text-sm font-semibold text-[var(--color-gold)]">
-              {leg.price.toFixed(2)}
-            </span>
+            <div className="flex flex-col items-end gap-1">
+              <span className="tnum w-14 text-right text-sm font-semibold text-[var(--color-gold)]">
+                {leg.price.toFixed(2)}
+              </span>
+              {leg.deepLink && (
+                <a
+                  href={leg.deepLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] text-[var(--color-edge)] hover:underline"
+                  title={`Apostar en ${leg.detail || "casa de apuestas"}`}
+                >
+                  Ir a la apuesta
+                </a>
+              )}
+            </div>
           </li>
         ))}
       </ul>
