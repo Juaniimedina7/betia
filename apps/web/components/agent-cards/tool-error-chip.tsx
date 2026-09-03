@@ -20,8 +20,8 @@ const FRIENDLY_MESSAGES: Record<string, string> = {
  * be technical/English, e.g. update_bet_slip_outcome's unwrapped "Bet slip not found or
  * not owned by this user"), always a fixed, safe Spanish message keyed by tool name.
  */
-export function ToolErrorChip({ toolName }: { toolName: string }) {
-  const message = FRIENDLY_MESSAGES[toolName] ?? "Algo falló con esa consulta. Probá de nuevo.";
+export function ToolErrorChip({ toolName, message: override }: { toolName: string; message?: string }) {
+  const message = override ?? FRIENDLY_MESSAGES[toolName] ?? "Algo falló con esa consulta. Probá de nuevo.";
   return (
     <div
       className="flex items-center gap-2 rounded-xl border px-3 py-2 text-xs"

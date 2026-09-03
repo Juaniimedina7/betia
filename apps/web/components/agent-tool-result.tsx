@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { AcceptableComboTicket } from "@/components/combo-ticket-accept";
 import { ComboTicket } from "@/components/combo-ticket";
 import { SimpleListCard } from "@/components/agent-cards/simple-list-card";
@@ -39,6 +40,26 @@ function LoadingChip({ toolName }: { toolName: string }) {
       <span className="live-dot" style={{ background: "var(--color-gold)" }} />
       <span>{LOADING_LABELS[toolName] ?? toolName}</span>
     </div>
+  );
+}
+
+/**
+ * Catalog/exploration steps (list_sports/tournaments/fixtures) are how the agent
+ * navigates toward a combo — noise when you just asked for a bet. Collapse them into
+ * a one-line chip that expands to the full card on click, so the chat shows the
+ * result, not every step. Terminal answers (combo, odds, stats) stay expanded.
+ */
+function CollapsibleStep({ summary, children }: { summary: string; children: ReactNode }) {
+  return (
+    <details className="group rounded-xl border border-[var(--line)] bg-white/[0.02]">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs text-[var(--color-ink-muted)]">
+        <span className="live-dot" style={{ background: "var(--color-ink-faint)", animation: "none" }} />
+        <span>{summary}</span>
+        <span className="ml-auto text-[var(--color-ink-faint)] group-open:hidden">ver ▾</span>
+        <span className="ml-auto hidden text-[var(--color-ink-faint)] group-open:inline">ocultar ▴</span>
+      </summary>
+      <div className="p-2 pt-0">{children}</div>
+    </details>
   );
 }
 
@@ -100,7 +121,10 @@ export function AgentToolResult({ part }: { part: unknown }) {
         />
       );
     }
-    return <ToolErrorChip toolName={toolName} />;
+    // Empty result (e.g. no cached matches for the filters) carries a Spanish
+    // `warning` — show the real reason instead of a generic "probá de nuevo".
+    const out = getToolOutput(part) as { warning?: string } | null;
+    return <ToolErrorChip toolName={toolName} message={out?.warning ?? undefined} />;
   }
 
   const output = getToolOutput(part);
@@ -108,22 +132,34 @@ export function AgentToolResult({ part }: { part: unknown }) {
 
   switch (toolName) {
     case "list_sports": {
-      const o = output as { sports?: Array<{ sportId: string; name: string }> };
-      return <SimpleListCard title="Deportes" items={(o.sports ?? []).map((s) => ({ id: s.sportId, name: s.name }))} />;
+      const items = ((output as { sports?: Array<{ sportId: string; name: string }> }).sports ?? []).map((s) => ({
+        id: s.sportId,
+        name: s.name,
+      }));
+      return (
+        <CollapsibleStep summary={`Revisó ${items.length} deportes`}>
+          <SimpleListCard title="Deportes" items={items} />
+        </CollapsibleStep>
+      );
     }
     case "list_tournaments": {
-      const o = output as { tournaments?: Array<{ tournamentId: string; name: string }> };
+      const items = ((output as { tournaments?: Array<{ tournamentId: string; name: string }> }).tournaments ?? []).map(
+        (t) => ({ id: t.tournamentId, name: t.name }),
+      );
       return (
-        <SimpleListCard
-          title="Torneos"
-          items={(o.tournaments ?? []).map((t) => ({ id: t.tournamentId, name: t.name }))}
-        />
+        <CollapsibleStep summary={`Revisó ${items.length} torneos`}>
+          <SimpleListCard title="Torneos" items={items} />
+        </CollapsibleStep>
       );
     }
     case "list_fixtures":
     case "get_odds_by_tournament": {
-      const o = output as { fixtures?: FixtureSummary[] };
-      return <FixtureListCard fixtures={o.fixtures ?? []} />;
+      const fixtures = (output as { fixtures?: FixtureSummary[] }).fixtures ?? [];
+      return (
+        <CollapsibleStep summary={`Revisó ${fixtures.length} partidos`}>
+          <FixtureListCard fixtures={fixtures} />
+        </CollapsibleStep>
+      );
     }
     case "get_odds":
       return <OddsCard output={output as GetOddsOutput} />;
