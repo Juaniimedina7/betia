@@ -122,10 +122,11 @@ export function ComboTicket({
                   href={leg.deepLink}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[10px] text-[var(--color-edge)] hover:underline"
+                  className="inline-flex items-center gap-1 rounded-md bg-[var(--color-edge)]/10 px-1.5 py-0.5 text-[11px] font-medium text-[var(--color-edge)] transition-colors hover:bg-[var(--color-edge)]/20"
                   title={`Apostar en ${leg.detail || "casa de apuestas"}`}
                 >
-                  Ir a la apuesta
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  Ir a apostar
                 </a>
               )}
             </div>

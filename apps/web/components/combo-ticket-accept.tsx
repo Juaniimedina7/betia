@@ -64,31 +64,61 @@ export function AcceptableComboTicket({
       />
 
       {canAccept && (
-        <div className="flex flex-wrap items-center gap-2 px-1">
-          <Show when="signed-in">
-            {status === "saved" && betSlipId ? (
-              <Link href={`/apuestas/${betSlipId}`} className="btn btn-primary !py-2 !text-sm">
-                Guardada ✓ · Ver en Mis apuestas
-              </Link>
-            ) : (
-              <button
-                type="button"
-                onClick={accept}
-                disabled={status === "loading"}
-                className="btn btn-primary !py-2 !text-sm disabled:opacity-40"
-              >
-                {status === "loading" ? "Guardando…" : "Aceptar apuesta"}
-              </button>
-            )}
-            {status === "error" && (
-              <span className="text-xs text-red-300">No se pudo guardar. Probá de nuevo.</span>
-            )}
-          </Show>
-          <Show when="signed-out">
-            <span className="text-xs text-[var(--color-ink-muted)]">
-              Iniciá sesión para guardar esta combinada en Mis apuestas.
-            </span>
-          </Show>
+        <div className="space-y-3 px-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <Show when="signed-in">
+              {status === "saved" && betSlipId ? (
+                <Link href={`/apuestas/${betSlipId}`} className="btn btn-primary !py-2 !text-sm">
+                  Guardada ✓ · Ver en Mis apuestas
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={accept}
+                  disabled={status === "loading"}
+                  className="btn btn-primary !py-2 !text-sm disabled:opacity-40"
+                >
+                  {status === "loading" ? "Guardando…" : "Aceptar apuesta"}
+                </button>
+              )}
+              {status === "error" && (
+                <span className="text-xs text-red-300">No se pudo guardar. Probá de nuevo.</span>
+              )}
+            </Show>
+            <Show when="signed-out">
+              <span className="text-xs text-[var(--color-ink-muted)]">
+                Iniciá sesión para guardar esta combinada en Mis apuestas.
+              </span>
+            </Show>
+          </div>
+
+          {/* Bookmaker deep links — shown always when available, prominent after saving */}
+          {(() => {
+            const legsWithLinks = legs.filter((l) => l.deepLink);
+            if (legsWithLinks.length === 0) return null;
+            // Deduplicate by bookmaker: if all legs share one bookmaker, show one link
+            const byBookmaker = new Map<string, { bookmaker: string; deepLink: string }>();
+            for (const l of legsWithLinks) {
+              const bk = l.detail || "Casa de apuestas";
+              if (!byBookmaker.has(bk)) byBookmaker.set(bk, { bookmaker: bk, deepLink: l.deepLink! });
+            }
+            return (
+              <div className="flex flex-wrap gap-2">
+                {[...byBookmaker.values()].map((entry) => (
+                  <a
+                    key={entry.bookmaker}
+                    href={entry.deepLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-edge)]/30 bg-[var(--color-edge)]/10 px-3 py-1.5 text-xs font-medium text-[var(--color-edge)] transition-colors hover:bg-[var(--color-edge)]/20"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    Ir a {entry.bookmaker}
+                  </a>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
