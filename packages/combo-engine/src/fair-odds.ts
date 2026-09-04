@@ -143,6 +143,7 @@ export function extractCandidateLegs(events: Event[], options: ExtractCandidateL
           fairPriceDecimal,
           fairProbability,
           edgePct,
+          deepLink: best.outcome.link || event.bookmakerOdds[best.bookmaker]?.markets[marketId]?.link || event.link,
         });
       }
     }

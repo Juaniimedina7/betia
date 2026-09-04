@@ -53,6 +53,7 @@ export async function getBestPrice(input: GetBestPriceInput) {
       priceDecimal: leg.priceDecimal,
       fairPriceDecimal: leg.fairPriceDecimal,
       edgePct: leg.edgePct,
+      deepLink: leg.deepLink,
     })),
   };
 }

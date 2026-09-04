@@ -16,6 +16,7 @@ interface RawLeg {
   fairPriceDecimal?: number;
   edgePct?: number;
   statisticalProbability?: number;
+  deepLink?: string;
 }
 
 /**
@@ -77,6 +78,7 @@ export function extractCombo(
         edgePct: typeof l.edgePct === "number" ? l.edgePct : undefined,
         statisticalProbability:
           typeof l.statisticalProbability === "number" ? l.statisticalProbability : undefined,
+        deepLink: l.deepLink,
         raw: toRaw(l),
       })),
       multiplier: Number(d.combinedOddsDecimal ?? 0),

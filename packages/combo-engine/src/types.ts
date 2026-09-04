@@ -19,6 +19,8 @@ export interface CandidateLeg {
    * distinct from `fairProbability`'s market-implied de-vig number. Undefined for
    * spreads/totals or unmapped sports (NBA/NFL/tennis today). */
   statisticalProbability?: number;
+  /** Deep link pointing directly to the event/market on the bookmaker's site. */
+  deepLink?: string;
 }
 
 export type RiskProfile = "conservative" | "balanced" | "aggressive";
