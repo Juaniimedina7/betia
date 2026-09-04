@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Show } from "@clerk/nextjs";
 import { ComboTicket, type TicketLeg } from "@/components/combo-ticket";
+import { resolveBookmakerLink, bookmakerDisplayName } from "@/lib/bookmaker-links";
 
 type Status = "idle" | "loading" | "saved" | "error";
 
@@ -53,6 +54,18 @@ export function AcceptableComboTicket({
     }
   };
 
+  // Resolve bookmaker links for all legs (deep link or fallback URL)
+  const bookmakerLinks = (() => {
+    const byBookmaker = new Map<string, { bookmaker: string; displayName: string; link: string }>();
+    for (const l of legs) {
+      const bk = l.detail || l.raw?.bookmaker || "";
+      const link = resolveBookmakerLink(l.deepLink, bk);
+      if (!link || byBookmaker.has(bk)) continue;
+      byBookmaker.set(bk, { bookmaker: bk, displayName: bookmakerDisplayName(bk), link });
+    }
+    return [...byBookmaker.values()];
+  })();
+
   return (
     <div className="space-y-2">
       <ComboTicket
@@ -92,33 +105,23 @@ export function AcceptableComboTicket({
             </Show>
           </div>
 
-          {/* Bookmaker deep links — shown always when available, prominent after saving */}
-          {(() => {
-            const legsWithLinks = legs.filter((l) => l.deepLink);
-            if (legsWithLinks.length === 0) return null;
-            // Deduplicate by bookmaker: if all legs share one bookmaker, show one link
-            const byBookmaker = new Map<string, { bookmaker: string; deepLink: string }>();
-            for (const l of legsWithLinks) {
-              const bk = l.detail || "Casa de apuestas";
-              if (!byBookmaker.has(bk)) byBookmaker.set(bk, { bookmaker: bk, deepLink: l.deepLink! });
-            }
-            return (
-              <div className="flex flex-wrap gap-2">
-                {[...byBookmaker.values()].map((entry) => (
-                  <a
-                    key={entry.bookmaker}
-                    href={entry.deepLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-edge)]/30 bg-[var(--color-edge)]/10 px-3 py-1.5 text-xs font-medium text-[var(--color-edge)] transition-colors hover:bg-[var(--color-edge)]/20"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                    Ir a {entry.bookmaker}
-                  </a>
-                ))}
-              </div>
-            );
-          })()}
+          {/* Bookmaker links — always shown using deep link or fallback homepage */}
+          {bookmakerLinks.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {bookmakerLinks.map((entry) => (
+                <a
+                  key={entry.bookmaker}
+                  href={entry.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-edge)]/30 bg-[var(--color-edge)]/10 px-3 py-1.5 text-xs font-medium text-[var(--color-edge)] transition-colors hover:bg-[var(--color-edge)]/20"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  Ir a {entry.displayName}
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

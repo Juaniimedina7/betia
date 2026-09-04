@@ -1,3 +1,5 @@
+import { resolveBookmakerLink, bookmakerDisplayName } from "@/lib/bookmaker-links";
+
 export interface TicketLeg {
   selection: string;
   detail?: string;
@@ -83,7 +85,9 @@ export function ComboTicket({
       </div>
 
       <ul className="divide-y divide-[var(--line)]">
-        {legs.map((leg, i) => (
+        {legs.map((leg, i) => {
+          const link = resolveBookmakerLink(leg.deepLink, leg.detail);
+          return (
           <li key={i} className="flex items-center gap-3 px-5 py-3">
             <span
               className="tnum flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs"
@@ -117,13 +121,13 @@ export function ComboTicket({
               <span className="tnum w-14 text-right text-sm font-semibold text-[var(--color-gold)]">
                 {leg.price.toFixed(2)}
               </span>
-              {leg.deepLink && (
+              {link && (
                 <a
-                  href={leg.deepLink}
+                  href={link}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 rounded-md bg-[var(--color-edge)]/10 px-1.5 py-0.5 text-[11px] font-medium text-[var(--color-edge)] transition-colors hover:bg-[var(--color-edge)]/20"
-                  title={`Apostar en ${leg.detail || "casa de apuestas"}`}
+                  title={`Apostar en ${bookmakerDisplayName(leg.detail || "")}`}
                 >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                   Ir a apostar
@@ -131,7 +135,8 @@ export function ComboTicket({
               )}
             </div>
           </li>
-        ))}
+          );
+        })}
       </ul>
 
       <div className="flex items-end justify-between gap-4 border-t border-[var(--line-strong)] px-5 py-4">
