@@ -187,6 +187,16 @@ Every other odds-touching MCP tool (`list_fixtures`, `list_sports`, `list_tourna
 live-fallback-removal during this migration — none of them import the odds API client
 anymore; only `/api/ingest/poll` does.
 
+### Hourly cleanup of expired odds_cache rows (2026-09-03)
+
+`GET /api/ingest/cleanup` deletes `odds_cache` rows whose `commence_time` is already in
+the past, plus the matching Redis key (`RedisOddsCache.deleteFixtureOdds`, best-effort —
+those keys already carry a 120s TTL from ingest, so a Redis miss/error here is harmless).
+It doesn't call the odds API at all, so it doesn't touch the monthly quota math above.
+Runs hourly via `.github/workflows/cleanup-odds.yml` (`0 * * * *`, same GitHub-Actions-cron
+pattern as `poll-odds.yml` — Vercel Hobby only allows daily crons), same `CRON_SECRET`
+bearer-auth as the other `/api/ingest/*` routes.
+
 ## Highlightly quota (2026-08-31)
 
 Second external data source, added for statistical (Poisson-model) win/draw/loss

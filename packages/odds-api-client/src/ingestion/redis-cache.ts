@@ -30,4 +30,8 @@ export class RedisOddsCache implements OddsCache {
     if (!raw) return null;
     return typeof raw === "string" ? (JSON.parse(raw) as BookmakerOdds) : (raw as BookmakerOdds);
   }
+
+  async deleteFixtureOdds(eventId: string): Promise<void> {
+    await getRedis().del(keyFor(eventId));
+  }
 }

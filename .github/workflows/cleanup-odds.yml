@@ -1,0 +1,27 @@
+name: Cleanup expired odds (hourly)
+
+# Vercel Hobby solo permite crons de 1 vez por dia (ver poll-odds.yml), asi que esto
+# tambien corre desde GitHub Actions en vez de un cron nativo de Vercel.
+#
+# /api/ingest/cleanup borra de odds_cache (Postgres) y del cache de Redis los partidos
+# cuyo commence_time ya paso — no pega contra The Odds API para nada, asi que no cuenta
+# contra la cuota mensual descripta en poll-odds.yml.
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch: # permite dispararlo a mano desde la pestania Actions
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cleanup expired odds
+        run: |
+          code=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            "https://betia-web-brown.vercel.app/api/ingest/cleanup" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+          echo "HTTP $code"
+          cat /tmp/response.json
+          if [ "$code" != "200" ]; then
+            exit 1
+          fi

@@ -25,4 +25,5 @@ export interface OddsIngestionSource {
 export interface OddsCache {
   setFixtureOdds(eventId: string, odds: BookmakerOdds, ttlSeconds: number): Promise<void>;
   getFixtureOdds(eventId: string): Promise<BookmakerOdds | null>;
+  deleteFixtureOdds(eventId: string): Promise<void>;
 }
