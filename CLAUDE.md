@@ -333,3 +333,17 @@ unrelated, still-open item.
    `ODDSPAPI_TIMEOUT_MS`/`WATCHED_TOURNAMENT_IDS` env vars are safe to remove from
    Vercel and `.env.local` whenever convenient — nothing in the code reads them
    anymore (same "safe to clean up later" situation as the leftover Neon vars above).
+8. **`CLERK_WEBHOOK_SIGNING_SECRET` is not set anywhere** (not `.env.local`, not GitHub
+   secrets, so not synced to Vercel either) — found 2026-09-04 while debugging "aceptar
+   apuesta" silently failing to save. `apps/web/app/api/webhooks/clerk/route.ts` (which
+   would create/update a `users` row on Clerk's `user.created`/`user.updated` events)
+   always 500s without it, so it's never actually run in this app. This stopped being a
+   correctness bug for `bet_slips` (which FKs `users.id` NOT NULL) once `saveBetSlip()`
+   started calling `ensureUserExists()` itself (see `packages/db/src/users.ts`) instead
+   of assuming the webhook or `consumeRun`'s admin-skipped `ensureUser` call already
+   created the row — but the webhook itself is still dead weight and any future
+   `users`-FK'd write should not assume Clerk data (email, display name) is synced
+   in from the webhook; it'll have whatever placeholder `ensureUserExists` wrote
+   (`<clerkId>@pending.betia`, no display name) until something else corrects it. Fix
+   by adding the real secret from the Clerk dashboard's webhook config, once someone
+   sets up the endpoint there.
