@@ -2,9 +2,12 @@ import type {
   BookmakerOdds,
   BookmakerQuote,
   Event,
+  GetScoresParams,
   GetSportOddsParams,
   MarketQuote,
   QuotaSnapshot,
+  Score,
+  ScoreEntry,
   Sport,
 } from "./types";
 
@@ -60,6 +63,23 @@ interface RawEvent {
   link?: string;
 }
 
+interface RawScoreEntry {
+  name: string;
+  score: string;
+}
+
+interface RawScoreEvent {
+  id: string;
+  sport_key: string;
+  sport_title?: string;
+  commence_time: string;
+  completed: boolean;
+  home_team: string;
+  away_team: string;
+  scores: RawScoreEntry[] | null;
+  last_update?: string;
+}
+
 function normalizeSport(raw: RawSport): Sport {
   return {
     sportKey: raw.key,
@@ -98,6 +118,24 @@ function normalizeEvent(raw: RawEvent): Event {
     awayTeam: raw.away_team,
     bookmakerOdds: normalizeBookmakerOdds(raw.bookmakers),
     link: raw.link,
+  };
+}
+
+function normalizeScoreEntries(raw: RawScoreEntry[] | null): ScoreEntry[] | null {
+  return raw === null ? null : raw.map((s) => ({ name: s.name, score: s.score }));
+}
+
+function normalizeScore(raw: RawScoreEvent): Score {
+  return {
+    eventId: raw.id,
+    sportKey: raw.sport_key,
+    sportTitle: raw.sport_title,
+    commenceTime: raw.commence_time,
+    completed: raw.completed,
+    homeTeam: raw.home_team,
+    awayTeam: raw.away_team,
+    scores: normalizeScoreEntries(raw.scores),
+    lastUpdate: raw.last_update,
   };
 }
 
@@ -240,6 +278,22 @@ export class OddsApiClient {
       includeLinks: params.includeLinks,
     });
     return raw.map(normalizeEvent);
+  }
+
+  /**
+   * Scores for this sport_key's events — used for settlement, not odds. `completed`
+   * events include a `scores` array with each side's final score; `daysFrom` (max 3,
+   * The Odds API's own cap) controls how far back completed events are included.
+   * Unlike `getSportOdds`, cost isn't per-market (there's no markets param here) —
+   * see CLAUDE.md's settlement section for the confirmed-live cost of this endpoint.
+   */
+  async getScores(sportKey: string, params: GetScoresParams = {}): Promise<Score[]> {
+    const raw = await this.request<RawScoreEvent[]>(`/v4/sports/${sportKey}/scores`, {
+      eventIds: params.eventIds,
+      daysFrom: params.daysFrom,
+      dateFormat: "iso",
+    });
+    return raw.map(normalizeScore);
   }
 }
 

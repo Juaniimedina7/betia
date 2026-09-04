@@ -68,3 +68,27 @@ export interface QuotaSnapshot {
   used?: number;
   last?: number;
 }
+
+export interface ScoreEntry {
+  name: string;
+  score: string;
+}
+
+export interface Score {
+  eventId: string;
+  sportKey: string;
+  sportTitle?: string;
+  commenceTime: string;
+  completed: boolean;
+  homeTeam: string;
+  awayTeam: string;
+  /** Null while the game hasn't started, or when a completed event was postponed/cancelled. */
+  scores: ScoreEntry[] | null;
+  lastUpdate?: string;
+}
+
+export interface GetScoresParams {
+  eventIds?: string[];
+  /** How many days back to include completed events for. The Odds API caps this at 3. */
+  daysFrom?: number;
+}

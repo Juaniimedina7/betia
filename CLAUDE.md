@@ -197,6 +197,51 @@ Runs hourly via `.github/workflows/cleanup-odds.yml` (`0 * * * *`, same GitHub-A
 pattern as `poll-odds.yml` — Vercel Hobby only allows daily crons), same `CRON_SECRET`
 bearer-auth as the other `/api/ingest/*` routes.
 
+### Auto-settlement: grading bet_slip_legs against real results (2026-09-04)
+
+`GET /api/ingest/settle` marks each pending `bet_slip_legs` row won/lost/void once its
+match has finished, then settles the parent `bet_slips.status` (won/lost/push) once
+every leg is resolved — automating what `update_bet_slip_outcome` only did as a manual,
+self-reported action before. It never overwrites `userMarkedOutcome` (that field stays
+reserved for an actual human self-report) and only looks at slips whose `status` is
+still `saved`/`placed_by_user`, so a manually-marked slip is never touched.
+
+**New: `OddsApiClient.getScores(sportKey, { eventIds?, daysFrom? })`**
+(`packages/odds-api-client`), wrapping `GET /v4/sports/{sport}/scores` — a real
+endpoint this client never called before (`get_scores`/`get_settlements` were dropped
+without a replacement in the 2026-09-02 OddsPapi→The Odds API migration, see above).
+**Confirmed live 2026-09-04: this endpoint costs a flat 2 credits per call**, regardless
+of `eventIds` or `daysFrom` — a different, more expensive cost model than `/odds`'s
+"1 credit per market requested" (see the Quota section above). This matters because the
+odds-poll cron already runs the monthly budget close to its 500-request cap — polling
+scores for all 15-17 watched `sport_key`s on every run the way `poll/route.ts` does
+would blow it immediately (17 sports × 2 credits × 24 runs/day would be enormous).
+
+Instead, `/api/ingest/settle` only calls `getScores` for `sport_key`s that actually have
+a `bet_slip_legs` row still `"pending"`, `marketId="h2h"`, and `startTime` more than 3h
+in the past (`SETTLE_DELAY_MS`) — most runs find nothing pending and cost 0 credits. A
+leg older than 3 days (`MAX_AGE_MS`, matching the scores endpoint's own `daysFrom` cap
+of 3) is left `"pending"` forever with no alert — a known, accepted gap, not something
+worth building retry/alerting infra for at this stage. A defensive
+`MAX_SPORTS_PER_RUN = 10` bounds a pathological run the same way `poll-stats/route.ts`'s
+`MAX_H2H_FETCHES_PER_RUN` does, though it should essentially never bind in practice.
+
+**Grading is h2h-only for now** (`apps/web/lib/settlement/grade-h2h-leg.ts`) — `save_bet_slip`
+only ever writes `marketId="h2h"` legs today (`poll/route.ts` only ever polls
+`markets: ["h2h"]`), so spreads/totals grading was never built; a leg with any other
+`marketId` is left `pending` rather than guessed at. Grading matches `scores[].name`
+against the leg's `participant1Id`/`participant2Id` (same provider-sourced team-name
+strings captured at save time) rather than re-deriving home/away, and defensively voids
+anything it can't grade with confidence (postponed/cancelled events with no `scores`,
+name mismatches, a tie against a 2-outcome market with no "Draw" option). Slip-level
+status (`apps/web/lib/settlement/derive-slip-status.ts`) follows the standard parlay
+rule: any lost leg loses the slip; an all-void slip pushes; otherwise it's won.
+
+Runs hourly via `.github/workflows/settle-bets.yml`, same GH-Actions-cron/`CRON_SECRET`
+pattern as the other `/api/ingest/*` routes — safe at that cadence specifically because
+idle runs are free; the real cost scales with how many distinct sports have unsettled
+bets at once, not with how often the cron fires.
+
 ## Highlightly quota (2026-08-31)
 
 Second external data source, added for statistical (Poisson-model) win/draw/loss

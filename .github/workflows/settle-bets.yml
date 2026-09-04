@@ -1,0 +1,32 @@
+name: Settle finished bets (hourly)
+
+# Vercel Hobby solo permite crons de 1 vez por dia (ver poll-odds.yml), asi que esto
+# tambien corre desde GitHub Actions.
+#
+# /api/ingest/settle marca ganada/perdida/anulada cada pata (y despues la apuesta
+# completa) una vez que el partido terminó, consultando The Odds API SOLO para los
+# sport_keys que tengan alguna apuesta pendiente con kickoff ya pasado — no pega contra
+# la API si no hay nada que resolver, así que la mayoría de las corridas cuestan 0
+# créditos. El endpoint de scores cuesta 2 créditos fijos por llamada (confirmado en
+# vivo el 2026-09-04, ver CLAUDE.md) — correrlo cada hora es seguro porque el costo
+# real depende de cuántos sport_keys distintos tengan apuestas sin resolver en un
+# momento dado, no de la cantidad de corridas.
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch: # permite dispararlo a mano desde la pestania Actions
+
+jobs:
+  settle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Settle finished bets
+        run: |
+          code=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            "https://betia-web-brown.vercel.app/api/ingest/settle" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+          echo "HTTP $code"
+          cat /tmp/response.json
+          if [ "$code" != "200" ]; then
+            exit 1
+          fi
