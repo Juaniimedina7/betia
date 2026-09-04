@@ -22,7 +22,8 @@ export async function POST(req: Request) {
   try {
     const result = await saveBetSlip(parsed.data, { userId });
     return Response.json(result);
-  } catch {
+  } catch (err) {
+    console.error("[bets/accept] save_failed", err);
     return Response.json({ error: "save_failed" }, { status: 500 });
   }
 }

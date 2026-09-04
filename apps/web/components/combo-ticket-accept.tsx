@@ -47,7 +47,8 @@ export function AcceptableComboTicket({
       const data = (await res.json()) as { betSlipId: string };
       setBetSlipId(data.betSlipId);
       setStatus("saved");
-    } catch {
+    } catch (err) {
+      console.error("[accept]", err);
       setStatus("error");
     }
   };

@@ -1,4 +1,4 @@
-import { getDb, monthlyUsage, users } from "@bet/db";
+import { ensureUserExists, getDb, monthlyUsage, users } from "@bet/db";
 import { and, eq, sql } from "drizzle-orm";
 import { PLAN_BY_ID, type PlanId } from "./plans";
 
@@ -7,18 +7,8 @@ export function currentPeriod(now: Date = new Date()): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-/**
- * Ensures a users row exists before we reference it from monthly_usage. The
- * Clerk webhook normally creates it, but it may not be configured yet — this
- * keeps enforcement working regardless. A placeholder email is corrected later.
- */
-export async function ensureUser(userId: string, email?: string): Promise<void> {
-  const db = getDb();
-  await db
-    .insert(users)
-    .values({ id: userId, email: email || `${userId}@pending.betia` })
-    .onConflictDoNothing({ target: users.id });
-}
+/** Re-exported for existing callers (e.g. the checkout route) — see @bet/db's ensureUserExists. */
+export const ensureUser = ensureUserExists;
 
 export interface UsageSnapshot {
   planId: PlanId;

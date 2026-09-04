@@ -1,4 +1,4 @@
-import { betSlipLegs, betSlips, getDb, oddsCache } from "@bet/db";
+import { betSlipLegs, betSlips, ensureUserExists, getDb, oddsCache } from "@bet/db";
 import { inArray } from "drizzle-orm";
 import { z } from "zod";
 import { requireUserId, type ToolAuthContext } from "../context";
@@ -31,6 +31,10 @@ export type SaveBetSlipInput = z.infer<typeof saveBetSlipInput>;
 
 export async function saveBetSlip(input: SaveBetSlipInput, ctx: ToolAuthContext | undefined) {
   const userId = requireUserId(ctx, "save_bet_slip");
+  // bet_slips.userId is a NOT NULL FK to users.id — the only other path that
+  // creates that row (consumeRun, on chat) is skipped for admins and never
+  // runs at all for this call site, so this insert can't assume it exists.
+  await ensureUserExists(userId);
   const db = getDb();
 
   const combinedOdds = input.legs.reduce((product, leg) => product * leg.priceDecimal, 1);
