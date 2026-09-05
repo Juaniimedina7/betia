@@ -23,6 +23,15 @@ export interface CandidateLeg {
   deepLink?: string;
 }
 
+/**
+ * "conservative": still +EV (edge >=0%) AND a real (statistical or market-implied)
+ * chance of hitting of at least 80% — low-variance picks, not just well-priced ones.
+ * A >=5% edge floor on top of the probability floor was tried and rejected: clear
+ * favorites (>=80% probability) essentially never clear positive edge in real cached
+ * odds, so it made this profile return empty almost always.
+ * "balanced"/"aggressive": edge-only floors (>=-3% / >=-8%), no probability floor.
+ * See `filterByRiskProfile` in ./edge.ts for the exact thresholds.
+ */
 export type RiskProfile = "conservative" | "balanced" | "aggressive";
 
 export interface BuildComboConstraints {

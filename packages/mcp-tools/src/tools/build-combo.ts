@@ -33,7 +33,18 @@ export const buildComboInput = z.object({
   // edge still means "this book's price vs. the real consensus line."
   bookmaker: z.string().optional(),
   excludeFixtureIds: z.array(z.string()).optional(),
-  riskProfile: z.enum(["conservative", "balanced", "aggressive"]).optional(),
+  // "conservative": still +EV (>=0% edge) AND >=80% real chance of hitting (statistical
+  // when available, else market-implied) — low-variance picks, not just well-priced
+  // ones. "balanced" (default): edge >= -3%, no probability floor. "aggressive": edge
+  // >= -8%, no probability floor. Map "perfil conservador/moderado/agresivo" (or
+  // synonyms like "seguro"/"arriesgado") from the user's request to this parameter —
+  // omitting it silently falls back to "balanced".
+  riskProfile: z
+    .enum(["conservative", "balanced", "aggressive"])
+    .optional()
+    .describe(
+      "Risk profile for leg selection. 'conservative' = still +EV (edge >=0%) AND >=80% real chance of hitting (low-variance, high-confidence picks). 'balanced' (default) = edge >= -3%, no probability floor. 'aggressive' = edge >= -8%, no probability floor. Map the user's requested risk level (e.g. Spanish 'perfil conservador/moderado/agresivo', 'seguro', 'arriesgado') onto this — don't leave it unset if the user expressed a risk preference, since omitting it silently defaults to 'balanced'.",
+    ),
   tolerance: z.number().min(0).max(1).optional(),
 });
 
