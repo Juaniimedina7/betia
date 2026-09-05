@@ -7,13 +7,13 @@
  * Keep in sync with DEFAULT_BOOKMAKERS in apps/web/app/api/ingest/poll/route.ts.
  */
 export const BOOKMAKER_URLS: Record<string, string> = {
-  pinnacle: "https://www.pinnacle.com/sports",
+  pinnacle: "https://www.pinnacle.com/es/",
   unibet: "https://www.unibet.com/betting/sports",
   betano_uk: "https://www.betano.co.uk/sport/football",
-  codere_it: "https://www.codere.it/scommesse-sportive",
-  betsson: "https://www.betsson.com/en/sportsbook",
+  codere_it: "https://www.codere.it",
+  betsson: "https://www.betsson.bet.ar",
   betway: "https://www.betway.com/en/sports",
-  espnbet: "https://www.espnbet.com",
+  espnbet: "https://thescore.bet/",
 };
 
 /** Display-friendly name for a bookmaker key. */
