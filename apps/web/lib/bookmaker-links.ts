@@ -9,10 +9,10 @@
 export const BOOKMAKER_URLS: Record<string, string> = {
   pinnacle: "https://www.pinnacle.com/es/",
   unibet: "https://www.unibet.com/betting/sports",
-  betano_uk: "https://www.betano.co.uk/sport/football",
-  codere_it: "https://www.codere.it",
+  betano_uk: "https://www.betano.bet.ar",
+  codere_it: "https://www.codere.bet.ar",
   betsson: "https://www.betsson.bet.ar",
-  betway: "https://www.betway.com/en/sports",
+  betway: "https://betway.com",
   espnbet: "https://thescore.bet/",
 };
 
