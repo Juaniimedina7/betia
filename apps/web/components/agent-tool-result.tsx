@@ -132,6 +132,7 @@ export function AgentToolResult({ part }: { part: unknown }) {
       );
     }
     return <ToolErrorChip toolName={toolName} />;
+  }
 
   const output = getToolOutput(part);
   if (output === null) return <LoadingChip toolName={toolName} />;
