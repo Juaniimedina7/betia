@@ -183,18 +183,29 @@ export async function buildComboTool(input: BuildComboInput): Promise<ComboResul
   const statisticalProbabilities = await fetchStatisticalProbabilities(events);
 
   if (input.bookmaker) {
+    const rawBookmaker = input.bookmaker.toLowerCase();
+    const cachedBookmakers = [...new Set(events.flatMap((e) => Object.keys(e.bookmakerOdds)))];
+    
+    let resolvedBookmaker = cachedBookmakers.find((b) => b.toLowerCase() === rawBookmaker);
+    if (!resolvedBookmaker) {
+      resolvedBookmaker = cachedBookmakers.find(
+        (b) => b.toLowerCase().includes(rawBookmaker) || rawBookmaker.includes(b.toLowerCase())
+      );
+    }
+
+    if (!resolvedBookmaker) {
+      return emptyResult(
+        `No tenemos cuotas cacheadas de "${input.bookmaker}" — las casas disponibles ahora son: ${cachedBookmakers.join(", ") || "ninguna"}.`
+      );
+    }
+
     const candidates = applyStatisticalProbabilities(
-      extractCandidateLegs(events, { bookmaker: input.bookmaker }),
+      extractCandidateLegs(events, { bookmaker: resolvedBookmaker }),
       statisticalProbabilities,
     );
+    
     if (candidates.length === 0) {
-      const cachedBookmakers = [...new Set(events.flatMap((e) => Object.keys(e.bookmakerOdds)))];
-      const isCached = cachedBookmakers.some((b) => b.toLowerCase() === input.bookmaker!.toLowerCase());
-      return emptyResult(
-        isCached
-          ? `No hay cuotas de "${input.bookmaker}" para ningún partido que cumpla los demás filtros.`
-          : `No tenemos cuotas cacheadas de "${input.bookmaker}" — las casas disponibles ahora son: ${cachedBookmakers.join(", ") || "ninguna"}.`,
-      );
+      return emptyResult(`No hay cuotas de "${resolvedBookmaker}" para ningún partido que cumpla los demás filtros.`);
     }
     return runComboSearch(candidates, constraints);
   }

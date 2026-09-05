@@ -124,8 +124,14 @@ export function AgentToolResult({ part }: { part: unknown }) {
     // Empty result (e.g. no cached matches for the filters) carries a Spanish
     // `warning` — show the real reason instead of a generic "probá de nuevo".
     const out = getToolOutput(part) as { warning?: string } | null;
-    return <ToolErrorChip toolName={toolName} message={out?.warning ?? undefined} />;
-  }
+    if (out?.warning) {
+      return (
+        <CollapsibleStep summary="Búsqueda sin resultados">
+          <div className="card px-5 py-4 text-sm text-[var(--color-ink-muted)]">{out.warning}</div>
+        </CollapsibleStep>
+      );
+    }
+    return <ToolErrorChip toolName={toolName} />;
 
   const output = getToolOutput(part);
   if (output === null) return <LoadingChip toolName={toolName} />;
