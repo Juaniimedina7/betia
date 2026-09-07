@@ -19,6 +19,9 @@ importers:
       '@ai-sdk/react':
         specifier: ^4.0.82
         version: 4.0.82(react@19.2.8)(zod@4.4.3)
+      '@bet/api-football-client':
+        specifier: workspace:*
+        version: link:../../packages/api-football-client
       '@bet/combo-engine':
         specifier: workspace:*
         version: link:../../packages/combo-engine
@@ -97,6 +100,15 @@ importers:
         version: 4.3.3
       typescript:
         specifier: ^5
+        version: 5.9.3
+
+  packages/api-football-client:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.43
+        version: 20.19.43
+      typescript:
+        specifier: ^5.9.3
         version: 5.9.3
 
   packages/combo-engine:

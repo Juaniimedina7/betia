@@ -72,3 +72,21 @@ jobs:
           if [ "$code" != "200" ]; then
             exit 1
           fi
+
+      # Runs AFTER the main odds poll above on purpose: it merges API-Football's
+      # bookmakers (Bet365 among them — not available on The Odds API at all) into
+      # the odds_cache rows that step just wrote, matched by team name + kickoff
+      # time. See CLAUDE.md's "API-Football odds quota" section for the confirmed-
+      # live request budget (~17 requests/day on the Free plan) this step stays
+      # under. Independent step for the same reason as the stats poll above — a
+      # failure here must not mask a successful main odds poll.
+      - name: Poll odds (API-Football, complementary bookmakers/markets)
+        run: |
+          code=$(curl -s -o /tmp/response-api-football.json -w "%{http_code}" \
+            "https://betia-web-brown.vercel.app/api/ingest/poll-api-football-odds" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+          echo "HTTP $code"
+          cat /tmp/response-api-football.json
+          if [ "$code" != "200" ]; then
+            exit 1
+          fi

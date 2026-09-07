@@ -242,6 +242,121 @@ pattern as the other `/api/ingest/*` routes — safe at that cadence specificall
 idle runs are free; the real cost scales with how many distinct sports have unsettled
 bets at once, not with how often the cron fires.
 
+**This h2h-only limitation matters more after 2026-09-07** (see "Complementary odds
+provider: API-Football" below) — non-h2h markets (hándicap, más/menos, ambos anotan,
+etc.) are now visible to the agent/UI for the first time, so a user can actually save a
+non-h2h leg today. That leg will sit `pending` forever under the same rule described
+above — a known, deliberately accepted gap (not fixed as part of that odds work), not a
+bug if you see one stuck.
+
+## Complementary odds provider: API-Football (2026-09-07)
+
+Added `packages/api-football-client` (`@bet/api-football-client`) as a **second, purely
+additive** odds source — The Odds API stays the primary/only source for NBA, NFL,
+tennis, and remains untouched for soccer too; this only *adds* bookmakers/markets on
+top of it for the 13 watched soccer `sport_key`s. Motivation: **Bet365 is not available
+on The Odds API at all** (confirmed live 2026-09-02, see above), and The Odds API only
+ever polls the `h2h` market (see `MARKETS` in `poll/route.ts`) — adding more markets
+there costs 1 extra credit per market per call against a monthly quota already close to
+its cap. API-Football turned out to have a completely different, much cheaper cost
+model for odds specifically (see below), making it a good complementary fit.
+
+**Same provider, already burned once for a different reason.** API-Football
+(`api-football.com`) was tried and dropped on 2026-08-31 as a **stats** source (see
+"Highlightly quota" below) — its Free plan blocks the current season on every
+season-scoped endpoint (`/teams`, `/teams/statistics`, `/fixtures?season=`).
+**Re-confirmed live 2026-09-07: that restriction is still there.** But the odds
+endpoints, used the way this integration uses them (see below), never hit it — this is
+a different, viable use of the same account/key, not a retry of the abandoned one.
+
+### Confirmed live 2026-09-07 (Free plan, `v3.football.api-sports.io`, `x-apisports-key` header)
+
+- **100 requests/day, 10 requests/minute** (`x-ratelimit-requests-remaining` /
+  `x-ratelimit-remaining` response headers).
+- `GET /fixtures?league=39&season=2025` and `GET /odds?league=39&season=2025&date=...`
+  both return `"Free plans do not have access to this season, try from 2022 to 2024"` —
+  any call combining `league` + `season` for 2025/2026 is blocked, exactly like the
+  stats endpoints were in August.
+- **But odds calls that don't combine `league`+`season` work fine for the current
+  season**: `GET /fixtures?date=<date>` (no `league`), `GET /odds?fixture=<id>` (single
+  fixture, no `season`), and `GET /odds?date=<date>` (bulk, no `league`/`season`) all
+  returned real 2026-season data. This is why the design below never filters `/odds` by
+  league server-side — it fetches everything for a date and filters client-side.
+- **Cost model is per fixture/page, not per market or bookmaker** — the opposite of The
+  Odds API. One `GET /odds?date=` page returns up to 10 fixtures, **every** bookmaker
+  and **every** bet type for those fixtures, for 1 request. A live sample day
+  (2026-09-08 fixtures, queried 2026-09-07) paginated to **16 pages** worldwide.
+  `GET /odds?fixture=<id>` similarly returns one fixture's full bookmaker/market spread
+  (13 bookmakers, up to 97 bet types for one bookmaker) for 1 request.
+- **Catalog**: `GET /odds/bookmakers` lists 33 supported bookmakers (includes Bet365,
+  William Hill, Betfair, 1xBet, Marathonbet, Pinnacle, Unibet, Betano, ...).
+  `GET /odds/bets` lists 338 distinct bet types (Match Winner, Asian Handicap, Goals
+  Over/Under, Both Teams Score, Double Chance, Correct Score, Odd/Even, and many
+  first-half/second-half/per-team variants). Actual coverage per fixture is much
+  smaller than 338 and varies — the live sample fixture (Liga Profesional Argentina)
+  had 13 bookmakers actually quoted, none of `betway`/`codere_it`/`betsson`/`espnbet`
+  among them, same "coverage isn't uniform" caveat already documented for The Odds API.
+
+### Design
+
+`apps/web/app/api/ingest/poll-api-football-odds/route.ts` runs as a third step in the
+same daily job as `/api/ingest/poll` (`.github/workflows/poll-odds.yml`), **after** it
+— it merges into rows that step already wrote, matched by team name (reusing
+`team-name-matching.ts`'s exact-then-fuzzy logic, see
+`apps/web/lib/ingest/fixture-matching.ts`) and a ±90 minute kickoff-time window, scoped
+to the fixture's `sport_key` only. A fixture with no match yet gets inserted as a new
+`odds_cache` row keyed `` `apifootball:${fixtureId}` `` instead of being dropped.
+
+`odds_cache.bookmaker_odds` has no `provider` column — instead,
+`packages/api-football-client` prefixes every bookmaker key it writes with `af:`
+(`af:bet365`, `af:pinnacle`, ...) so it can never collide with a The Odds API key in the
+same jsonb blob (both providers have a bookmaker literally named "Pinnacle"). The merge
+itself is a Postgres jsonb `||` (`bookmaker_odds || <new af: keys>`), which only
+overwrites the `af:`-namespaced keys this route owns — The Odds API's own keys, written
+separately by `poll/route.ts`'s plain-overwrite upsert, are never touched by this route
+and vice versa.
+
+The one bet type semantically remapped rather than kept under its own key: API-Football's
+"Match Winner" bet (outcome values are generic "Home"/"Draw"/"Away") is translated to
+the fixture's real team names and written under the shared `h2h` market key — so a
+Bet365/API-Football h2h price sits alongside The Odds API's bookmakers under the same
+key, comparable in `build_combo`'s de-vig logic and gradable by the existing (unchanged)
+`grade-h2h-leg.ts`, since that only keys off the `marketId` string and team-name
+outcome strings, not which provider supplied them. Every other bet type keeps its own
+slugified key (`asian_handicap`, `goals_over_under`, `both_teams_score`, ...) — see
+`packages/mcp-tools/src/market-labels.ts` for which ones have a curated Spanish label
+so far (unmapped keys fall back to their raw slug, not an error).
+
+`apps/web/lib/ingest/api-football-league-map.ts` hand-maps the 13 watched soccer
+`sport_key`s to API-Football's numeric league ids (all 13 verified live 2026-09-07 via
+`GET /leagues?id=<id>`) — separate from `packages/mcp-tools/src/league-map.ts`'s
+`LEAGUE_MAP` (that one is Highlightly-for-stats, unrelated). NBA/NFL/tennis have no
+entry here — API-Football is soccer-only, so those sport_keys keep getting odds solely
+from The Odds API, unchanged.
+
+### Budget
+
+The route only queries **"tomorrow"** (1 day ahead) — `requests/day ≈ 1 (fixtures
+lookup for team names) + pages_for_that_day` (~16 confirmed live) ≈ **~17
+requests/day**, comfortable under the 100/day Free-plan cap.
+`MAX_PAGES_PER_RUN = 30` in the route is a defensive bound (mirrors
+`MAX_H2H_FETCHES_PER_RUN`/`MAX_SPORTS_PER_RUN` elsewhere in this codebase), not a
+budget calculation. Widening the look-ahead window (more than 1 day) or adding a second
+run/day multiplies this linearly (`requests/day = days_queried × runs/day × (1 +
+pages_per_day)`) — redo that math first. If quota ever gets tight, the account holder
+has already said they're open to the Pro plan ($19/mo, 7,500/day) — free tier is enough
+for this integration's current scope, so there was no reason to start there.
+
+### Explicitly out of scope for this integration (see grading note above too)
+
+- **Settlement/grading** for non-h2h legs was not built — see the note above.
+- **NBA/NFL/tennis** odds are untouched — API-Football only ever supplies soccer.
+- **Outrights/futures** (tournament winner, top scorer) were not added — `odds_cache`
+  is keyed per fixture, not per tournament; that would need real schema/UI work.
+- `API_FOOTBALL_API_KEY` is set locally (`apps/web/.env.local`) but — same gap as
+  `ANTHROPIC_API_KEY`/`HIGHLIGHTLY_API_KEY`/`ODDSAPI_API_KEY` before it (see "Next
+  steps" below) — **not yet in the real production Vercel project.**
+
 ## Highlightly quota (2026-08-31)
 
 Second external data source, added for statistical (Poisson-model) win/draw/loss
@@ -349,8 +464,16 @@ unrelated, still-open item.
    assuming a prod env var is missing or stale, check `deploy.yml` for the real
    `VERCEL_ORG_ID`/`VERCEL_PROJECT_ID`, not the local link.** Confirming/updating real
    prod env vars (`DATABASE_URL`, `ANTHROPIC_API_KEY`, `HIGHLIGHTLY_API_KEY`, etc.)
-   requires whoever holds the `VERCEL_TOKEN` secret to run `vercel env add` against
-   that project, or to grant CLI access to `team_klaQ4k4O3uyzx9gNCCsGWN91`.
+   normally requires whoever holds the `VERCEL_TOKEN` secret to run `vercel env add`
+   against that project, or to grant CLI access to `team_klaQ4k4O3uyzx9gNCCsGWN91` —
+   **but there's a lower-friction path that doesn't need either**: `deploy.yml`'s
+   "Sync missing env vars to Vercel" step runs `.github/scripts/sync-env.mjs` on every
+   deploy, which pushes any GitHub repo secret not yet present in Vercel (all three
+   environments) using the `VERCEL_TOKEN` secret the workflow already has — it only
+   adds missing keys, never overwrites existing ones. Confirmed working live
+   2026-09-07: adding `API_FOOTBALL_API_KEY` as a GitHub secret and triggering
+   `deploy.yml` via `workflow_dispatch` synced it into Vercel production/preview/
+   development without needing direct Vercel access at all.
 2. **`ANTHROPIC_API_KEY` is not yet set anywhere real.** The parlay agent
    (`apps/web/lib/agent/parlay-agent.ts`) calls Anthropic directly via
    `@ai-sdk/anthropic`. Local `.env.local` has a placeholder (`"REPLACE_ME"`) and prod
@@ -375,7 +498,12 @@ unrelated, still-open item.
    before the 2026-09-02 OddsPapi→The Odds API migration started) but not yet in
    production**, same gap as items 2 and 6 — needs adding to the real prod Vercel
    project (see item 1).
-8. **`CLERK_WEBHOOK_SIGNING_SECRET` is not set anywhere** (not `.env.local`, not GitHub
+8. **`API_FOOTBALL_API_KEY` is set locally (`apps/web/.env.local`) — already synced to
+   the real prod Vercel project (production/preview/development) on 2026-09-07** via
+   the GitHub-secrets → `sync-env.mjs` path (see item 1's deploy mechanism) — needs
+   the actual ingest route (`/api/ingest/poll-api-football-odds`) merged to `main` to
+   start using it (see "Complementary odds provider: API-Football" above).
+9. **`CLERK_WEBHOOK_SIGNING_SECRET` is not set anywhere** (not `.env.local`, not GitHub
    secrets, so not synced to Vercel either) — found 2026-09-04 while debugging "aceptar
    apuesta" silently failing to save. `apps/web/app/api/webhooks/clerk/route.ts` (which
    would create/update a `users` row on Clerk's `user.created`/`user.updated` events)
