@@ -8,23 +8,19 @@
  */
 export const BOOKMAKER_URLS: Record<string, string> = {
   pinnacle: "https://www.pinnacle.com/es/",
-  unibet: "https://www.unibet.com/betting/sports",
   betano_uk: "https://www.betano.bet.ar",
   codere_it: "https://www.codere.bet.ar",
   betsson: "https://www.betsson.bet.ar",
   betway: "https://betway.com",
-  espnbet: "https://thescore.bet/",
 };
 
 /** Display-friendly name for a bookmaker key. */
 export const BOOKMAKER_NAMES: Record<string, string> = {
   pinnacle: "Pinnacle",
-  unibet: "Unibet",
   betano_uk: "Betano",
   codere_it: "Codere",
   betsson: "Betsson",
   betway: "Betway",
-  espnbet: "ESPN BET",
 };
 
 /**

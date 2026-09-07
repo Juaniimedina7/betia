@@ -14,7 +14,7 @@ const ODDS_CACHE_TTL_SECONDS = 120;
 // — The Odds API bills per market requested, not per bookmaker (see CLAUDE.md's "The
 // Odds API quota" section) — but redo that section's budget math before changing the
 // market list or the cron cadence.
-const DEFAULT_BOOKMAKERS = ["pinnacle", "unibet", "betano_uk", "codere_it", "betsson", "betway", "espnbet"];
+const DEFAULT_BOOKMAKERS = ["pinnacle", "betano_uk", "codere_it", "betsson", "betway"];
 const MARKETS = ["h2h"];
 
 export async function GET(req: Request) {
