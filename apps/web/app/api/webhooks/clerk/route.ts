@@ -16,7 +16,8 @@ interface ClerkUserEvent {
 export async function POST(req: Request) {
   const secret = process.env.CLERK_WEBHOOK_SIGNING_SECRET;
   if (!secret) {
-    return new Response("CLERK_WEBHOOK_SIGNING_SECRET not set", { status: 500 });
+    console.warn("[webhooks/clerk] CLERK_WEBHOOK_SIGNING_SECRET is not set. User sync from Clerk is disabled. Returning 200 to prevent retries.");
+    return new Response("Webhook secret not configured, skipping", { status: 200 });
   }
 
   const svixId = req.headers.get("svix-id");

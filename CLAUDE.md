@@ -374,10 +374,7 @@ unrelated, still-open item.
 7. **`ODDSAPI_API_KEY` is set locally (`apps/web/.env.local`, was already provisioned
    before the 2026-09-02 OddsPapi→The Odds API migration started) but not yet in
    production**, same gap as items 2 and 6 — needs adding to the real prod Vercel
-   project (see item 1). The old `ODDSPAPI_API_KEY`/`ODDSPAPI_HOST`/
-   `ODDSPAPI_TIMEOUT_MS`/`WATCHED_TOURNAMENT_IDS` env vars are safe to remove from
-   Vercel and `.env.local` whenever convenient — nothing in the code reads them
-   anymore (same "safe to clean up later" situation as the leftover Neon vars above).
+   project (see item 1).
 8. **`CLERK_WEBHOOK_SIGNING_SECRET` is not set anywhere** (not `.env.local`, not GitHub
    secrets, so not synced to Vercel either) — found 2026-09-04 while debugging "aceptar
    apuesta" silently failing to save. `apps/web/app/api/webhooks/clerk/route.ts` (which

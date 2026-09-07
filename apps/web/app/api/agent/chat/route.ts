@@ -12,6 +12,15 @@ export async function POST(req: Request) {
     return new Response("Unauthorized", { status: 401 });
   }
 
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey || anthropicKey === "REPLACE_ME") {
+    console.error("[agent/chat] ANTHROPIC_API_KEY is not configured in this environment.");
+    return Response.json(
+      { error: "configuration_error", message: "La funcionalidad del agente no está configurada (API Key faltante). Contactá al administrador." },
+      { status: 500 }
+    );
+  }
+
   const user = await currentUser();
   const email = user?.emailAddresses?.[0]?.emailAddress;
 
