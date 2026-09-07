@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
@@ -28,7 +28,6 @@ export default function AgentPage() {
   const { messages, sendMessage, status, error } = useChat({
     transport: new DefaultChatTransport({ api: "/api/agent/chat" }),
   });
-  const bottomRef = useRef<HTMLDivElement>(null);
   const busy = status === "streaming" || status === "submitted";
   const [usage, setUsage] = useState<Usage | null>(null);
 
@@ -51,10 +50,6 @@ export default function AgentPage() {
 
   const outOfRuns = usage && !usage.admin ? usage.remaining <= 0 : false;
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, status]);
-
   const send = (text: string) => {
     if (!text.trim() || busy || outOfRuns) return;
     sendMessage({ text });
@@ -62,7 +57,7 @@ export default function AgentPage() {
   };
 
   return (
-    <div className="container-page flex min-h-[calc(100vh-4rem)] max-w-3xl flex-col py-10">
+    <div className="container-page flex min-h-[calc(100vh-4rem)] max-w-4xl flex-col py-10">
       <div className="mb-6">
         <span className="eyebrow inline-flex items-center gap-2">
           <span className="live-dot" /> Agente de combinadas
@@ -111,7 +106,7 @@ export default function AgentPage() {
         {messages.map((message) => {
           const isUser = message.role === "user";
           return (
-            <div key={message.id} className={isUser ? "flex justify-end" : ""}>
+            <div key={message.id} className={`msg-in ${isUser ? "flex justify-end" : ""}`}>
               <div className={isUser ? "max-w-[85%]" : "w-full"}>
                 <p className="eyebrow mb-1.5">{isUser ? "Vos" : "BETIA"}</p>
                 <div
@@ -144,7 +139,6 @@ export default function AgentPage() {
         )}
 
         {error && <ChatErrorBanner error={error} />}
-        <div ref={bottomRef} />
       </div>
 
       {outOfRuns ? (

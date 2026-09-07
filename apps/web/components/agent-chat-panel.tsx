@@ -79,7 +79,7 @@ export function AgentChatPanel({
           return (
             <div
               key={message.id}
-              className={`flex shrink-0 flex-col ${isUser ? "items-end" : "items-start"}`}
+              className={`msg-in flex shrink-0 flex-col ${isUser ? "items-end" : "items-start"}`}
             >
               <p className="eyebrow mb-1.5">{isUser ? "Vos" : "BETIA"}</p>
               <div
