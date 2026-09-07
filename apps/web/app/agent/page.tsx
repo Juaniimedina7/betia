@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
@@ -30,6 +30,10 @@ export default function AgentPage() {
   });
   const busy = status === "streaming" || status === "submitted";
   const [usage, setUsage] = useState<Usage | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  // Only follow new content when the user is already near the bottom, so we never
+  // yank them down while they're scrolled up reading earlier messages.
+  const stickToBottom = useRef(true);
 
   const refreshUsage = useCallback(async () => {
     try {
@@ -49,6 +53,23 @@ export default function AgentPage() {
   }, [status, refreshUsage]);
 
   const outOfRuns = usage && !usage.admin ? usage.remaining <= 0 : false;
+
+  useEffect(() => {
+    const onScroll = () => {
+      stickToBottom.current =
+        window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 220;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Gently keep the newest content in view (above the sticky composer, thanks to
+  // scroll-mb on the anchor) — but only when the user hasn't scrolled up.
+  useEffect(() => {
+    if (stickToBottom.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [messages, status]);
 
   const send = (text: string) => {
     if (!text.trim() || busy || outOfRuns) return;
@@ -139,6 +160,9 @@ export default function AgentPage() {
         )}
 
         {error && <ChatErrorBanner error={error} />}
+        {/* Scroll anchor; scroll-mb clears the sticky composer so the last line
+            never ends up hidden behind the input. */}
+        <div ref={bottomRef} aria-hidden className="scroll-mb-32" />
       </div>
 
       {outOfRuns ? (
