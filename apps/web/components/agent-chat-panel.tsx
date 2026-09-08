@@ -81,7 +81,7 @@ export function AgentChatPanel({
               con una de las sugerencias de abajo.
             </p>
             {betProfile === "unspecified" && (
-              <Link href="/profileTest" className="btn btn-ghost">
+              <Link href="/profileTest" className="btn btn-edge">
                 Hacé que tus combinadas se adapten a tu estilo de juego →
               </Link>
             )}

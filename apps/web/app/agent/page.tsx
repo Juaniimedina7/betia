@@ -142,7 +142,7 @@ export default function AgentPage() {
               ))}
             </div>
             {betProfile === "unspecified" && (
-              <Link href="/profileTest" className="btn btn-ghost mt-4">
+              <Link href="/profileTest" className="btn btn-edge mt-4">
                 Hacé que tus combinadas se adapten a tu estilo de juego →
               </Link>
             )}

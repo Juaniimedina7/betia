@@ -199,6 +199,21 @@
     border-color: rgba(255, 255, 255, 0.22);
   }
 
+  /* Secondary CTA in the accent colour: se nota mucho más que .btn-ghost sin
+     competir de igual a igual con el lima sólido de .btn-primary, que en estas
+     pantallas ya está tomado por la acción principal. Mismos tokens que .chip-edge. */
+  .btn-edge {
+    background: rgba(184, 255, 53, 0.1);
+    color: var(--color-edge);
+    border: 1px solid rgba(184, 255, 53, 0.4);
+  }
+  .btn-edge:hover {
+    background: rgba(184, 255, 53, 0.16);
+    border-color: rgba(184, 255, 53, 0.65);
+    box-shadow: 0 10px 30px -12px rgba(184, 255, 53, 0.5);
+    transform: translateY(-2px);
+  }
+
   /* Live pulse dot */
   .live-dot {
     position: relative;
