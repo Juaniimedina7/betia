@@ -1,10 +1,16 @@
 import { getDb, oddsCache } from "@bet/db";
-import { and, inArray, isNotNull } from "drizzle-orm";
+import { and, gte, inArray, isNotNull, lte } from "drizzle-orm";
 import { z } from "zod";
 import type { FixtureSummary } from "./list-fixtures";
 
 export const getOddsByTournamentInput = z.object({
   sportKeys: z.array(z.string()).min(1),
+  // ISO 8601 kickoff-time window (UTC), same contract as build_combo's from/to —
+  // without these, every cached fixture for the given sport_keys comes back regardless
+  // of when it kicks off. Added 2026-09-08; this was the one "list"-style odds tool
+  // with no date filter at all (list_fixtures and build_combo already had it).
+  from: z.string().datetime({ offset: true }).optional(),
+  to: z.string().datetime({ offset: true }).optional(),
 });
 
 export type GetOddsByTournamentInput = z.infer<typeof getOddsByTournamentInput>;
@@ -16,10 +22,13 @@ export type GetOddsByTournamentInput = z.infer<typeof getOddsByTournamentInput>;
  */
 export async function getOddsByTournament(input: GetOddsByTournamentInput) {
   const db = getDb();
+  const conditions = [inArray(oddsCache.sportKey, input.sportKeys), isNotNull(oddsCache.bookmakerOdds)];
+  if (input.from) conditions.push(gte(oddsCache.commenceTime, new Date(input.from)));
+  if (input.to) conditions.push(lte(oddsCache.commenceTime, new Date(input.to)));
   const rows = await db
     .select()
     .from(oddsCache)
-    .where(and(inArray(oddsCache.sportKey, input.sportKeys), isNotNull(oddsCache.bookmakerOdds)));
+    .where(and(...conditions));
 
   const fixtures: FixtureSummary[] = rows.map((r) => ({
     fixtureId: r.eventId,

@@ -3,6 +3,7 @@ import type { Event } from "@bet/odds-api-client";
 import { extractCandidateLegs } from "@bet/combo-engine";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { resolveByName } from "../fuzzy-match";
 import { toUserFacingError } from "../user-facing-error";
 
 export const getBestPriceInput = z.object({
@@ -37,9 +38,22 @@ export async function getBestPrice(input: GetBestPriceInput) {
     bookmakerOdds: row.bookmakerOdds as Event["bookmakerOdds"],
   };
 
-  const legs = extractCandidateLegs([event]).filter(
-    (leg) => leg.marketId === input.marketId && leg.outcomeName === input.outcomeName && leg.point === input.point,
+  // outcomeName resolution is fuzzy (exact case-insensitive, then substring) since
+  // player-prop outcome names (e.g. "Lamine Yamal") come through raw/unnormalized from
+  // API-Football — see packages/api-football-client's normalizeBookmakers, which only
+  // translates "Match Winner" outcomes. Scoped to this market+point's own outcome
+  // names first, so a fuzzy match never accidentally resolves against an unrelated
+  // market's outcome.
+  const legsForMarket = extractCandidateLegs([event]).filter(
+    (leg) => leg.marketId === input.marketId && leg.point === input.point,
   );
+  const resolvedOutcomeName = resolveByName(
+    input.outcomeName,
+    [...new Set(legsForMarket.map((leg) => leg.outcomeName))],
+  );
+  const legs = resolvedOutcomeName
+    ? legsForMarket.filter((leg) => leg.outcomeName === resolvedOutcomeName)
+    : [];
 
   if (legs.length === 0) {
     return { found: false as const };
