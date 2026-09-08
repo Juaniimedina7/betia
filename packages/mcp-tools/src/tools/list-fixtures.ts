@@ -3,6 +3,7 @@ import type { BookmakerOdds } from "@bet/odds-api-client";
 import { and, eq, gte, isNotNull, lte } from "drizzle-orm";
 import { z } from "zod";
 import { notStartedCondition } from "../fixture-time";
+import { resolveByName } from "../fuzzy-match";
 
 export const listFixturesInput = z.object({
   // Actually a sport_key (e.g. "soccer_epl") — kept as `tournamentId` to match
@@ -12,6 +13,12 @@ export const listFixturesInput = z.object({
   tournamentId: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
+  // Fuzzy-matches (case/accent-insensitive, exact then substring either way — see
+  // resolveByName) against either team's name. Deliberately independent of
+  // sportId/tournamentId (like find_player_props' playerName) — a specific team name is
+  // already a strong filter, so a user naming a match by its two teams ("Boca vs San
+  // Pablo") doesn't need to resolve a sport/competition first just to find the fixture.
+  teamName: z.string().optional(),
 });
 
 export type ListFixturesInput = z.infer<typeof listFixturesInput>;
@@ -57,6 +64,11 @@ export async function listFixtures(input: ListFixturesInput) {
         startTime: (r.commenceTime ?? r.updatedAt).toISOString(),
         bookmakerOdds: (r.bookmakerOdds as BookmakerOdds) ?? undefined,
       }))
+      .filter((f) => {
+        if (!input.teamName) return true;
+        const candidates = [f.homeTeam, f.awayTeam].filter((t): t is string => !!t);
+        return resolveByName(input.teamName, candidates) !== undefined;
+      })
       .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
     return { fixtures, count: fixtures.length, source: "cache" as const };

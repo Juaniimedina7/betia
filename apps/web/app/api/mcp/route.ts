@@ -70,7 +70,7 @@ const handler = createMcpHandler(
       "list_fixtures",
       {
         description:
-          "List upcoming fixtures, optionally filtered by tournament and/or a from/to kickoff window. Already-started/finished fixtures are always excluded. Response includes `count`, the number of fixtures returned.",
+          "List upcoming fixtures, optionally filtered by tournament, a from/to kickoff window, and/or `teamName` (fuzzy match against either team, independent of tournament — use this to find a specific match by team name(s) without first resolving its sport/competition). Already-started/finished fixtures are always excluded. Response includes `count`, the number of fixtures returned.",
         inputSchema: listFixturesInput,
       },
       async (input) => jsonContent(await listFixtures(input)),
