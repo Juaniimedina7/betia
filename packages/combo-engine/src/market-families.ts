@@ -22,7 +22,14 @@
  * lumping them together would over-restrict combos for no real correctness gain.
  */
 export const MARKET_FAMILY: Record<string, string> = {
-  // Full-match result (who wins, with or without a margin)
+  // Full-match result (who wins, with or without a margin) — includes every market
+  // whose "Yes"/team outcome, if true, necessarily means that team won the match:
+  // winning both halves implies winning at least one (to_win_either_half) and the
+  // match itself; winning to nil or coming from behind to win both imply the match
+  // winner too. Confirmed live 2026-09-09: to_win_either_half ("Home" 1.57) and
+  // win_both_halves ("Home" 6.5) were NOT grouped together before this and got
+  // combined into one same-match combo despite win_both_halves⟹to_win_either_half —
+  // the "10x" shown was really just win_both_halves' own 6.5x, double-counted.
   h2h: "result",
   home_away: "result",
   double_chance: "result",
@@ -31,6 +38,14 @@ export const MARKET_FAMILY: Record<string, string> = {
   ht_ft_double: "result",
   win_both_halves: "result",
   home_win_both_halves: "result",
+  away_win_both_halves: "result",
+  to_win_either_half: "result",
+  win_to_nil: "result",
+  win_to_nil_home: "result",
+  win_to_nil_away: "result",
+  to_win_from_behind: "result",
+  home_come_from_behind_and_win: "result",
+  away_come_from_behind_and_win: "result",
 
   // First-half-scoped result
   first_half_winner: "result_1h",

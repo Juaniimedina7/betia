@@ -270,6 +270,20 @@ export async function buildComboTool(input: BuildComboInput): Promise<ComboResul
   return best;
 }
 
+// A correct/exact scoreline determines essentially every other market for its scope
+// (who won, by how much, total goals, both-teams-score, odd/even goals, ...) — it would
+// need to conflict with several different MARKET_FAMILY families at once, which the
+// single-family-key model in combo-engine can't express. Rather than force that in,
+// exclude these from same-match combo candidates outright (same reasoning already
+// applied to exact_score for a different reason — see market-labels.ts's comment on
+// why it's excluded from the curated chat set — this is a second, independent reason
+// to keep it out of THIS particular path).
+const SCORE_EXHAUSTIVE_MARKETS = new Set(["exact_score", "correct_score_first_half", "correct_score_second_half"]);
+
+function extractSameMatchCandidateLegs(event: Event, options: { bookmaker: string }): CandidateLeg[] {
+  return extractCandidateLegs([event], options).filter((leg) => !SCORE_EXHAUSTIVE_MARKETS.has(leg.marketId));
+}
+
 /**
  * The `fixtureId` branch: same shape as buildComboTool's normal cross-fixture path
  * (same-bookmaker-for-the-whole-combo rule, same "try every bookmaker, keep the best"
@@ -314,7 +328,7 @@ async function buildSameMatchComboTool(input: BuildComboInput, fixtureId: string
       );
     }
     const candidates = applyStatisticalProbabilities(
-      extractCandidateLegs([event], { bookmaker: resolvedBookmaker }),
+      extractSameMatchCandidateLegs(event, { bookmaker: resolvedBookmaker }),
       statisticalProbabilities,
     );
     if (candidates.length === 0) {
@@ -326,7 +340,7 @@ async function buildSameMatchComboTool(input: BuildComboInput, fixtureId: string
   let best: ComboResult | null = null;
   for (const bookmaker of cachedBookmakers) {
     const candidates = applyStatisticalProbabilities(
-      extractCandidateLegs([event], { bookmaker }),
+      extractSameMatchCandidateLegs(event, { bookmaker }),
       statisticalProbabilities,
     );
     if (candidates.length === 0) continue;
