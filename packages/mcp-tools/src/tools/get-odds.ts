@@ -1,5 +1,5 @@
 import { getDb, oddsCache } from "@bet/db";
-import { RedisOddsCache, type BookmakerOdds } from "@bet/odds-api-client";
+import { RedisOddsCache, type BookmakerOdds, type BookmakerQuote } from "@bet/odds-api-client";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { marketLabel, outcomeLabel } from "../market-labels";
@@ -125,4 +125,41 @@ async function readCachedOdds(
   } catch {
     return null;
   }
+}
+
+/**
+ * Trims a getOdds() result down to markets that have a real curated Spanish label
+ * (marketLabel() falls back to the raw key otherwise, so `label !== marketId` means
+ * "we bothered to support this one"). Used only by the `get_odds` MCP tool exposed to
+ * the agent — the `/fixtures/[fixtureId]` page calls getOdds() directly (untrimmed)
+ * since its LiveOddsTable is built to browse every market via a dropdown.
+ *
+ * Exists because API-Football alone can put 150+ markets on one fixture — sending all
+ * of that to the model on every get_odds call is expensive and, confirmed live
+ * 2026-09-08, produced an unusably huge chat response for a request about one specific
+ * market. See apps/web/components/agent-cards/odds-card.tsx for the matching UI-side
+ * cap (kept as a second, independent safeguard).
+ */
+export function toCuratedOddsOutput<T extends { bookmakerOdds: BookmakerOdds; marketCatalog: Record<string, MarketInfo> }>(
+  result: T,
+): T {
+  const curatedMarketIds = new Set(
+    Object.entries(result.marketCatalog)
+      .filter(([marketId, market]) => market.label !== marketId)
+      .map(([marketId]) => marketId),
+  );
+
+  const marketCatalog: Record<string, MarketInfo> = {};
+  for (const id of curatedMarketIds) marketCatalog[id] = result.marketCatalog[id]!;
+
+  const bookmakerOdds: BookmakerOdds = {};
+  for (const [bookmakerKey, book] of Object.entries(result.bookmakerOdds)) {
+    const markets: BookmakerQuote["markets"] = {};
+    for (const id of curatedMarketIds) {
+      if (book.markets[id]) markets[id] = book.markets[id]!;
+    }
+    bookmakerOdds[bookmakerKey] = { ...book, markets };
+  }
+
+  return { ...result, bookmakerOdds, marketCatalog };
 }

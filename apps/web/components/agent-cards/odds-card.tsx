@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { BookmakerOdds } from "@bet/odds-api-client";
 
 interface MarketInfo {
@@ -6,6 +7,7 @@ interface MarketInfo {
 }
 
 export interface GetOddsOutput {
+  fixtureId: string;
   bookmakerOdds: BookmakerOdds;
   source: "redis" | "db-cache" | "no-odds";
   matchup?: { homeTeam?: string; awayTeam?: string; startTime?: string };
@@ -31,6 +33,17 @@ export function OddsCard({ output }: { output: GetOddsOutput }) {
     );
   }
 
+  // API-Football alone can put 150+ markets on one fixture (asian_handicap, corners,
+  // player props, ...) — rendering every one as its own table made this card
+  // unreadable (confirmed live 2026-09-08). Cap it to markets with a real curated
+  // Spanish label (packages/mcp-tools/src/market-labels.ts — marketLabel() falls back
+  // to the raw key when there's no translation, so `label !== marketId` is exactly
+  // "we bothered to support this one here"). Nothing is hidden from the data itself —
+  // the full board (every market) is always on /fixtures/[fixtureId].
+  const allEntries = Object.entries(output.marketCatalog);
+  const curatedEntries = allEntries.filter(([marketId, market]) => market.label !== marketId);
+  const hiddenCount = allEntries.length - curatedEntries.length;
+
   return (
     <div className="card overflow-hidden">
       <div className="border-b border-[var(--line)] px-5 py-3">
@@ -40,7 +53,7 @@ export function OddsCard({ output }: { output: GetOddsOutput }) {
             : "Cuotas del partido"}
         </span>
       </div>
-      {Object.entries(output.marketCatalog).map(([marketId, market]) => {
+      {curatedEntries.map(([marketId, market]) => {
         const keys = new Set<string>();
         for (const book of Object.values(output.bookmakerOdds)) {
           for (const outcome of book?.markets?.[marketId]?.outcomes ?? []) {
@@ -110,6 +123,15 @@ export function OddsCard({ output }: { output: GetOddsOutput }) {
           </div>
         );
       })}
+      {hiddenCount > 0 && (
+        <p className="px-5 py-3 text-xs text-[var(--color-ink-muted)]">
+          Hay {hiddenCount} mercados más para este partido (hándicaps, córners, tarjetas, goleadores, etc.) —{" "}
+          <Link href={`/fixtures/${output.fixtureId}`} className="underline hover:text-[var(--color-ink)]">
+            mirá la ficha completa
+          </Link>
+          .
+        </p>
+      )}
     </div>
   );
 }

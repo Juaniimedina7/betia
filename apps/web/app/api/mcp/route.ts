@@ -12,6 +12,7 @@ import {
   getOddsByTournament,
   getOddsByTournamentInput,
   getOddsInput,
+  toCuratedOddsOutput,
   getTeamStats,
   getTeamStatsInput,
   getUserBetSlip,
@@ -68,7 +69,10 @@ const handler = createMcpHandler(
     server.registerTool(
       "get_odds",
       { description: "Get current odds for one fixture (cached if available).", inputSchema: getOddsInput },
-      async (input) => jsonContent(await getOdds(input)),
+      // Trimmed to markets with a curated Spanish label — see toCuratedOddsOutput's
+      // doc comment. Full, untrimmed data (every market) is only on the
+      // /fixtures/[fixtureId] page, not exposed to the model here.
+      async (input) => jsonContent(toCuratedOddsOutput(await getOdds(input))),
     );
 
     server.registerTool(
