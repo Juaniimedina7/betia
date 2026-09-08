@@ -3,6 +3,7 @@ import type { Event } from "@bet/odds-api-client";
 import { extractCandidateLegs } from "@bet/combo-engine";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { hasFixtureStarted } from "../fixture-time";
 import { resolveByName } from "../fuzzy-match";
 import { toUserFacingError } from "../user-facing-error";
 
@@ -61,6 +62,9 @@ export async function getBestPrice(input: GetBestPriceInput) {
 
   return {
     found: true as const,
+    // See Matchup.hasStarted in get-odds.ts for why this matters — no status column on
+    // odds_cache, and the hourly cleanup cron can lag up to an hour behind kickoff.
+    hasStarted: hasFixtureStarted(row.commenceTime, row.updatedAt),
     selections: legs.map((leg) => ({
       selectionLabel: leg.selectionLabel,
       bookmaker: leg.bookmaker,

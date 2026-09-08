@@ -3,6 +3,7 @@ import type { Event } from "@bet/odds-api-client";
 import { extractCandidateLegs } from "@bet/combo-engine";
 import { and, gte, inArray, isNotNull, lte } from "drizzle-orm";
 import { z } from "zod";
+import { notStartedCondition } from "../fixture-time";
 import { resolveByName } from "../fuzzy-match";
 import { marketLabel } from "../market-labels";
 
@@ -55,7 +56,7 @@ export async function findPlayerProps(input: FindPlayerPropsInput): Promise<{ ma
   let events: Event[];
   try {
     const db = getDb();
-    const conditions = [isNotNull(oddsCache.bookmakerOdds)];
+    const conditions = [isNotNull(oddsCache.bookmakerOdds), notStartedCondition()];
     if (input.sportKeys && input.sportKeys.length > 0) {
       conditions.push(inArray(oddsCache.sportKey, input.sportKeys));
     }

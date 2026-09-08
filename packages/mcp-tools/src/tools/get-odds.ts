@@ -2,6 +2,7 @@ import { getDb, oddsCache } from "@bet/db";
 import { RedisOddsCache, type BookmakerOdds, type BookmakerQuote } from "@bet/odds-api-client";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { hasFixtureStarted } from "../fixture-time";
 import { marketLabel, outcomeLabel } from "../market-labels";
 
 export const getOddsInput = z.object({
@@ -16,6 +17,11 @@ export interface Matchup {
   homeTeam?: string;
   awayTeam?: string;
   startTime?: string;
+  // True once the fixture's kickoff has already passed — odds_cache has no separate
+  // status column, and the hourly cleanup cron (/api/ingest/cleanup) can take up to an
+  // hour to actually delete a started fixture, so this is the caller's signal to treat
+  // the odds as possibly stale/no-longer-bettable rather than assume they're live.
+  hasStarted?: boolean;
 }
 
 export interface MarketInfo {
@@ -101,6 +107,7 @@ async function getFixtureContext(fixtureId: string): Promise<Matchup | undefined
       homeTeam: row.homeTeam ?? undefined,
       awayTeam: row.awayTeam ?? undefined,
       startTime: row.commenceTime?.toISOString(),
+      hasStarted: hasFixtureStarted(row.commenceTime, row.updatedAt),
     };
   } catch {
     return undefined;
@@ -120,6 +127,7 @@ async function readCachedOdds(
         homeTeam: row.homeTeam ?? undefined,
         awayTeam: row.awayTeam ?? undefined,
         startTime: row.commenceTime?.toISOString(),
+        hasStarted: hasFixtureStarted(row.commenceTime, row.updatedAt),
       },
     };
   } catch {

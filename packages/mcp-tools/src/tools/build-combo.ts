@@ -9,6 +9,7 @@ import {
 } from "@bet/combo-engine";
 import { and, eq, gte, inArray, isNotNull, lte } from "drizzle-orm";
 import { z } from "zod";
+import { hasFixtureStarted, notStartedCondition } from "../fixture-time";
 import { resolveByName } from "../fuzzy-match";
 import { estimateMatchProbabilitiesBatch, fixtureKey, type StatisticalProbabilityResult } from "../statistical-probability";
 
@@ -40,7 +41,10 @@ export const buildComboInput = z.object({
   // resolved sport_keys is a candidate regardless of when it kicks off — a fixture 2
   // weeks out is just as eligible as one tonight. Pass both to scope to "hoy"/"esta
   // semana"/etc; the caller (the agent) is responsible for computing the actual
-  // boundaries since this tool has no notion of "today" on its own.
+  // boundaries since this tool has no notion of "today" on its own. Independently of
+  // these, a fixture whose kickoff has already passed is always excluded (see
+  // notStartedCondition in ../fixture-time) — from/to only narrow the future window,
+  // they can never pull in an already-started match.
   from: z.string().datetime({ offset: true }).optional(),
   to: z.string().datetime({ offset: true }).optional(),
   // Restricts every leg's bettable price to this one bookmaker (case-insensitive,
@@ -276,10 +280,16 @@ export async function buildComboTool(input: BuildComboInput): Promise<ComboResul
  * return path below is taken.
  */
 async function buildSameMatchComboTool(input: BuildComboInput, fixtureId: string): Promise<ComboResult> {
-  const event = await readCachedEvent(fixtureId);
-  if (!event) {
+  const cached = await readCachedEvent(fixtureId);
+  if (!cached) {
     return emptyResult(`No hay cuotas cacheadas para el partido "${fixtureId}".`);
   }
+  if (cached.hasStarted) {
+    return emptyResult(
+      `El partido "${fixtureId}" ya arrancó — no se arman combinadas de mercados de un partido que ya empezó.`,
+    );
+  }
+  const event = cached.event;
 
   const constraints = {
     targetMultiplier: input.targetMultiplier,
@@ -337,7 +347,7 @@ async function buildSameMatchComboTool(input: BuildComboInput, fixtureId: string
 async function readCachedEvents(sportKeys: string[], from?: string, to?: string): Promise<Event[]> {
   try {
     const db = getDb();
-    const conditions = [inArray(oddsCache.sportKey, sportKeys), isNotNull(oddsCache.bookmakerOdds)];
+    const conditions = [inArray(oddsCache.sportKey, sportKeys), isNotNull(oddsCache.bookmakerOdds), notStartedCondition()];
     if (from) conditions.push(gte(oddsCache.commenceTime, new Date(from)));
     if (to) conditions.push(lte(oddsCache.commenceTime, new Date(to)));
     const rows = await db
@@ -358,20 +368,24 @@ async function readCachedEvents(sportKeys: string[], from?: string, to?: string)
   }
 }
 
-/** Single-fixture counterpart to readCachedEvents, for the fixtureId branch. */
-async function readCachedEvent(fixtureId: string): Promise<Event | null> {
+/** Single-fixture counterpart to readCachedEvents, for the fixtureId branch. Flags
+ * (rather than excludes) an already-started fixture — the caller decides what to do. */
+async function readCachedEvent(fixtureId: string): Promise<{ event: Event; hasStarted: boolean } | null> {
   try {
     const db = getDb();
     const [row] = await db.select().from(oddsCache).where(eq(oddsCache.eventId, fixtureId)).limit(1);
     if (!row?.bookmakerOdds) return null;
     return {
-      eventId: row.eventId,
-      sportKey: row.sportKey,
-      sportTitle: row.sportTitle ?? undefined,
-      commenceTime: (row.commenceTime ?? row.updatedAt).toISOString(),
-      homeTeam: row.homeTeam ?? "",
-      awayTeam: row.awayTeam ?? "",
-      bookmakerOdds: row.bookmakerOdds as Event["bookmakerOdds"],
+      event: {
+        eventId: row.eventId,
+        sportKey: row.sportKey,
+        sportTitle: row.sportTitle ?? undefined,
+        commenceTime: (row.commenceTime ?? row.updatedAt).toISOString(),
+        homeTeam: row.homeTeam ?? "",
+        awayTeam: row.awayTeam ?? "",
+        bookmakerOdds: row.bookmakerOdds as Event["bookmakerOdds"],
+      },
+      hasStarted: hasFixtureStarted(row.commenceTime, row.updatedAt),
     };
   } catch {
     return null;

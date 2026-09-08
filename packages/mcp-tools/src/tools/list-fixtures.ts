@@ -2,6 +2,7 @@ import { getDb, oddsCache } from "@bet/db";
 import type { BookmakerOdds } from "@bet/odds-api-client";
 import { and, eq, gte, isNotNull, lte } from "drizzle-orm";
 import { z } from "zod";
+import { notStartedCondition } from "../fixture-time";
 
 export const listFixturesInput = z.object({
   // Actually a sport_key (e.g. "soccer_epl") — kept as `tournamentId` to match
@@ -28,13 +29,15 @@ export interface FixtureSummary {
 /**
  * DB-only read of odds_cache — no live call, ever (build_combo/list_fixtures/etc. all
  * lost their live-fallback path in the migration off OddsPapi; only /api/ingest/poll
- * calls the odds API now).
+ * calls the odds API now). Always excludes fixtures whose kickoff has already passed
+ * (see notStartedCondition in ../fixture-time) — from/to only narrow the future window
+ * further, they never pull in an already-started match.
  */
 export async function listFixtures(input: ListFixturesInput) {
   try {
     const db = getDb();
     const sportKey = input.tournamentId;
-    const conditions = [isNotNull(oddsCache.bookmakerOdds)];
+    const conditions = [isNotNull(oddsCache.bookmakerOdds), notStartedCondition()];
     if (sportKey) conditions.push(eq(oddsCache.sportKey, sportKey));
     if (input.from) conditions.push(gte(oddsCache.commenceTime, new Date(input.from)));
     if (input.to) conditions.push(lte(oddsCache.commenceTime, new Date(input.to)));
@@ -56,8 +59,8 @@ export async function listFixtures(input: ListFixturesInput) {
       }))
       .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
-    return { fixtures, source: "cache" as const };
+    return { fixtures, count: fixtures.length, source: "cache" as const };
   } catch {
-    return { fixtures: [] as FixtureSummary[], source: "cache" as const };
+    return { fixtures: [] as FixtureSummary[], count: 0, source: "cache" as const };
   }
 }

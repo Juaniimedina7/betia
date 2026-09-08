@@ -58,19 +58,27 @@ const handler = createMcpHandler(
 
     server.registerTool(
       "list_tournaments",
-      { description: "List tournaments for a given sport.", inputSchema: listTournamentsInput },
+      {
+        description:
+          "List tournaments for a given sport. Each tournament includes `fixtureCount`, the real number of upcoming (not yet started) cached fixtures for it — a tournament can appear here with fixtureCount 0 if nothing is cached for it right now.",
+        inputSchema: listTournamentsInput,
+      },
       async (input) => jsonContent(await listTournaments(input)),
     );
 
     server.registerTool(
       "list_fixtures",
-      { description: "List upcoming/live fixtures, optionally filtered.", inputSchema: listFixturesInput },
+      {
+        description:
+          "List upcoming fixtures, optionally filtered by tournament and/or a from/to kickoff window. Already-started/finished fixtures are always excluded. Response includes `count`, the number of fixtures returned.",
+        inputSchema: listFixturesInput,
+      },
       async (input) => jsonContent(await listFixtures(input)),
     );
 
     server.registerTool(
       "get_odds",
-      { description: "Get current odds for one fixture (cached if available).", inputSchema: getOddsInput },
+      { description: "Get current odds for one fixture (cached if available). Response's `matchup.hasStarted` is true if the fixture's kickoff has already passed — the odds may be stale/no longer bettable in that case, say so rather than presenting them as live.", inputSchema: getOddsInput },
       // Trimmed to markets with a curated Spanish label — see toCuratedOddsOutput's
       // doc comment. Full, untrimmed data (every market) is only on the
       // /fixtures/[fixtureId] page, not exposed to the model here.
@@ -80,7 +88,7 @@ const handler = createMcpHandler(
     server.registerTool(
       "get_odds_by_tournament",
       {
-        description: "Get fixtures with odds for one or more tournaments.",
+        description: "Get fixtures with odds for one or more tournaments. Already-started fixtures are always excluded.",
         inputSchema: getOddsByTournamentInput,
       },
       async (input) => jsonContent(await getOddsByTournament(input)),
@@ -89,7 +97,8 @@ const handler = createMcpHandler(
     server.registerTool(
       "get_best_price",
       {
-        description: "Get the best available price for a specific market/outcome, with a fair-price/edge estimate.",
+        description:
+          "Get the best available price for a specific market/outcome, with a fair-price/edge estimate. Response's `hasStarted` is true if the fixture's kickoff has already passed.",
         inputSchema: getBestPriceInput,
       },
       async (input) => jsonContent(await getBestPrice(input)),
@@ -99,7 +108,7 @@ const handler = createMcpHandler(
       "build_combo",
       {
         description:
-          "Deterministically build a parlay/combo hitting a target multiplier or leg count from cached odds, ranked by real statistical (Poisson) win probability where available and market edge otherwise, never combining two legs from the same fixture. Every leg in the returned combo always comes from a single bookmaker so the user can actually place the real bet there. Without `bookmaker`, every cached bookmaker is tried and the best resulting combo is kept; pass `bookmaker` to force a specific one instead. Without `from`/`to` it considers every cached fixture regardless of kickoff date — pass them (ISO 8601 UTC) to scope to a specific day/window. `riskProfile` controls how risky the selected legs are ('conservative' = high edge AND high real chance of hitting, low-variance; 'balanced' = default, edge-only floor; 'aggressive' = loosest edge floor) — see its own description for exact thresholds and set it whenever the user expresses a risk preference. Pass `fixtureId` instead of `sports`/`sportKeys` to build a same-match combo (multiple markets from ONE fixture, e.g. hándicap + más/menos + ambos anotan) — in that mode the result always carries a `disclaimer` about same-match correlation that must be relayed to the user verbatim.",
+          "Deterministically build a parlay/combo hitting a target multiplier or leg count from cached odds, ranked by real statistical (Poisson) win probability where available and market edge otherwise, never combining two legs from the same fixture. Every leg in the returned combo always comes from a single bookmaker so the user can actually place the real bet there. Without `bookmaker`, every cached bookmaker is tried and the best resulting combo is kept; pass `bookmaker` to force a specific one instead. Already-started fixtures are always excluded, even if they'd otherwise fall inside a given `from`/`to` window. Without `from`/`to` it considers every cached UPCOMING fixture regardless of kickoff date — pass them (ISO 8601 UTC) to scope to a specific day/window. `riskProfile` controls how risky the selected legs are ('conservative' = high edge AND high real chance of hitting, low-variance; 'balanced' = default, edge-only floor; 'aggressive' = loosest edge floor) — see its own description for exact thresholds and set it whenever the user expresses a risk preference. Pass `fixtureId` instead of `sports`/`sportKeys` to build a same-match combo (multiple markets from ONE fixture, e.g. hándicap + más/menos + ambos anotan) — in that mode the result always carries a `disclaimer` about same-match correlation that must be relayed to the user verbatim, and a fixture that already started returns an empty result explaining why instead of attempting to build one.",
         inputSchema: buildComboInput,
       },
       async (input) => jsonContent(await buildComboTool(input)),
@@ -109,7 +118,7 @@ const handler = createMcpHandler(
       "find_player_props",
       {
         description:
-          "Search cached odds across fixtures for a specific player's prop markets (goalscorer, shots, assists, etc.) by fuzzy name match — tolerates case/accent differences since player names come through raw from the odds provider. `sportKeys` is optional (unlike build_combo/get_odds_by_tournament) since a player name is already a strong filter; pass `marketId` to narrow to one specific prop type. Returns the best price per fixture/market/outcome across cached bookmakers.",
+          "Search cached odds across fixtures for a specific player's prop markets (goalscorer, shots, assists, etc.) by fuzzy name match — tolerates case/accent differences since player names come through raw from the odds provider. `sportKeys` is optional (unlike build_combo/get_odds_by_tournament) since a player name is already a strong filter; pass `marketId` to narrow to one specific prop type. Returns the best price per fixture/market/outcome across cached bookmakers. Already-started fixtures are always excluded.",
         inputSchema: findPlayerPropsInput,
       },
       async (input) => jsonContent(await findPlayerProps(input)),
