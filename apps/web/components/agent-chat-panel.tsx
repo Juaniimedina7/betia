@@ -26,6 +26,7 @@ export function AgentChatPanel({
   outOfRuns,
   error,
   onSend,
+  betProfile,
 }: {
   messages: UIMessage[];
   busy: boolean;
@@ -33,6 +34,8 @@ export function AgentChatPanel({
   outOfRuns: boolean;
   error?: Error;
   onSend: (text: string) => void;
+  /** Clerk publicMetadata.betProfile — "unspecified" hasta que el usuario haga el test. */
+  betProfile?: string;
 }) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -68,10 +71,17 @@ export function AgentChatPanel({
 
       <div ref={scrollRef} className="flex flex-1 flex-col gap-5 overflow-y-auto p-5">
         {messages.length === 0 && (
-          <p className="shrink-0 text-sm leading-relaxed text-[var(--color-ink-muted)]">
-            Decile qué buscás y el agente arma la combinada calculando el valor por vos. Probá
-            con una de las sugerencias de abajo.
-          </p>
+          <div className="shrink-0 space-y-3">
+            <p className="text-sm leading-relaxed text-[var(--color-ink-muted)]">
+              Decile qué buscás y el agente arma la combinada calculando el valor por vos. Probá
+              con una de las sugerencias de abajo.
+            </p>
+            {betProfile === "unspecified" && (
+              <Link href="/profileTest" className="btn btn-ghost">
+                Hacé que tus combinadas se adapten a tu estilo de juego →
+              </Link>
+            )}
+          </div>
         )}
 
         {messages.map((message) => {

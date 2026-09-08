@@ -1,4 +1,5 @@
 import { currentUser } from "@clerk/nextjs/server";
+import { getUserBetProfile } from "@bet/db";
 import { PublicLanding } from "@/components/public-landing";
 import { UserDashboard, type DashboardUsage } from "@/components/user-dashboard";
 import { isAdminRole } from "@/lib/admin";
@@ -19,7 +20,7 @@ export default async function HomePage() {
   // Admins bypass the quota entirely — same shape /api/usage returns for them.
   const admin = isAdminRole(user.publicMetadata);
 
-  const [{ events, error }, usage] = await Promise.all([
+  const [{ events, error }, usage, betProfile] = await Promise.all([
     getFeaturedEvents(),
     admin
       ? Promise.resolve<DashboardUsage>({
@@ -31,6 +32,8 @@ export default async function HomePage() {
         })
       : // The board still renders if Postgres is unreachable — the chips just hide.
         getUsage(user.id).catch(() => null),
+    // Si Postgres no responde, el CTA del perfil simplemente no se muestra.
+    getUserBetProfile(user.id).catch(() => undefined),
   ]);
 
   return (
@@ -39,6 +42,7 @@ export default async function HomePage() {
       initialUsage={usage}
       events={events}
       eventsError={error}
+      betProfile={betProfile}
     />
   );
 }

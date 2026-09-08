@@ -28,6 +28,19 @@ export const users = pgTable("users", {
   planUpdatedAt: timestamp("plan_updated_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  betProfile:text("bet_profile", { enum: ["risky", "balanced", "moderate","conservative","unspecified"] })
+    .default("unspecified"),
+  /**
+   * Club del que es hincha, elegido en el último paso de `/profileTest`
+   * (p. ej. "boca", "river"). `null` = no lo eligió o prefirió no decirlo.
+   *
+   * Texto libre a propósito, sin enum: la lista de clubes vive en
+   * `apps/web/lib/profile-test.ts` y el handoff de diseño prevé traerla del
+   * backend más adelante — un enum acá obligaría a migrar el schema cada vez
+   * que cambia un club. La validación contra la lista la hace
+   * `/api/profile-test`.
+   */
+  team: text("team"),
 });
 
 /** One row per user per calendar month (YYYY-MM); counts consumed agent runs. */
