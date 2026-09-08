@@ -4,11 +4,17 @@ import { eq, sql } from "drizzle-orm";
 import { API_FOOTBALL_LEAGUE_IDS, sportKeyForApiFootballLeague } from "@/lib/ingest/api-football-league-map";
 import { matchFixture, type OddsCacheFixtureCandidate } from "@/lib/ingest/fixture-matching";
 
-// Defensive cap on how many per-fixture /odds calls one run makes — a pathological day
-// (e.g. a Champions League matchday with many simultaneous kickoffs across our watched
-// competitions) shouldn't be able to blow the 100/day Free-plan budget in one run. See
-// CLAUDE.md's "API-Football odds quota" section for the full math this is based on.
-const MAX_FIXTURES_PER_RUN = 40;
+// How many days ahead of today this route looks — widened from 1 to 7 (2026-09-08) so
+// fixtures browsed on /odds show enriched markets well before their own "tomorrow",
+// not only the single day right after each run. See CLAUDE.md's "API-Football odds
+// quota" section for the budget math this and MAX_FIXTURES_PER_DAY are based on.
+const DAYS_AHEAD = 7;
+
+// Defensive per-day cap on how many per-fixture /odds calls one run makes — a
+// pathological day (e.g. a Champions League matchday with many simultaneous kickoffs
+// across our watched competitions) shouldn't be able to blow the 100/day Free-plan
+// budget across the whole DAYS_AHEAD window in one run.
+const MAX_FIXTURES_PER_DAY = 12;
 
 const WATCHED_LEAGUE_IDS = new Set(Object.values(API_FOOTBALL_LEAGUE_IDS));
 
@@ -32,24 +38,30 @@ export async function GET(req: Request) {
   }
 
   const client = getApiFootballClient();
-  // Free-plan budget only covers "tomorrow" (1 day ahead) per the confirmed-live cost
-  // math in CLAUDE.md — widening this window means redoing that math first.
-  const date = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const bookmakers = (process.env.API_FOOTBALL_BOOKMAKERS || "")
     .split(",")
     .map((b) => b.trim().toLowerCase())
     .filter(Boolean);
   const allowedBookmakers = new Set(bookmakers.length > 0 ? bookmakers : DEFAULT_API_FOOTBALL_BOOKMAKERS);
 
-  let watched;
-  try {
-    watched = await client.getOddsForLeagues(date, WATCHED_LEAGUE_IDS, MAX_FIXTURES_PER_RUN, allowedBookmakers);
-  } catch (err) {
-    const error =
-      err instanceof ApiFootballError
-        ? { message: err.message, status: err.status, body: err.body.slice(0, 500) }
-        : { message: String(err), status: 0 };
-    return Response.json({ date, merged: 0, inserted: 0, errors: { odds: error } }, { status: 502 });
+  const dates = Array.from({ length: DAYS_AHEAD }, (_, i) =>
+    new Date(Date.now() + (i + 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+  );
+
+  const watched: Awaited<ReturnType<typeof client.getOddsForLeagues>> = [];
+  const dayErrors: Record<string, unknown> = {};
+  for (const date of dates) {
+    try {
+      const fixtures = await client.getOddsForLeagues(date, WATCHED_LEAGUE_IDS, MAX_FIXTURES_PER_DAY, allowedBookmakers);
+      watched.push(...fixtures);
+    } catch (err) {
+      // One bad day (e.g. a transient timeout) shouldn't sink the other 6 — record it
+      // and keep going, same "independent, best-effort" spirit as poll/route.ts.
+      dayErrors[date] =
+        err instanceof ApiFootballError
+          ? { message: err.message, status: err.status, body: err.body.slice(0, 500) }
+          : { message: String(err), status: 0 };
+    }
   }
 
   const db = getDb();
@@ -125,10 +137,11 @@ export async function GET(req: Request) {
   }
 
   return Response.json({
-    date,
+    dates,
     fixturesWithOdds: watched.length,
     merged,
     inserted,
+    errors: Object.keys(dayErrors).length > 0 ? dayErrors : undefined,
     quota: client.getLastQuotaSnapshot(),
   });
 }

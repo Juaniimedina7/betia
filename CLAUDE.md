@@ -382,20 +382,31 @@ cosmetic/transient issue, not a permanent one) until it's specifically special-c
 
 ### Budget
 
-The route only queries **"tomorrow"** (1 day ahead) — `requests/day ≈ 1 (the
-/fixtures?date= discovery call) + fixtures_in_our_13_leagues_that_day`. Live samples
-for a single day: a quiet day had 0 matching fixtures (1 request total); a Champions
-League/Libertadores/Sudamericana day had 9 matching fixtures (10 requests total). Even
-a stacked matchday (Champions League's 36-team league phase can put ~18 matches on one
-date, plus other watched leagues) stays comfortably under the 100/day Free-plan cap.
-`MAX_FIXTURES_PER_RUN = 40` in the route is a defensive bound (mirrors
-`MAX_H2H_FETCHES_PER_RUN`/`MAX_SPORTS_PER_RUN` elsewhere in this codebase), not a
-budget calculation. Widening the look-ahead window (more than 1 day) or adding a second
-run/day multiplies the per-day fixture count accordingly (`requests/day ≈ days_queried
-× runs/day × (1 + matching_fixtures_per_day)`) — redo that math first. If quota ever
-gets tight, the account holder has already said they're open to the Pro plan ($19/mo,
-7,500/day) — free tier is enough for this integration's current scope, so there was no
-reason to start there.
+**Widened from 1 day ahead to `DAYS_AHEAD = 7` on 2026-09-08** — with a 1-day window,
+anything a user browsed on `/odds` beyond tomorrow only ever had The Odds API's `h2h`
+(confirmed live: Argentina Primera fixtures 4-8 days out showed no API-Football
+markets at all, since the route had never queried those dates yet). `requests/day ≈
+DAYS_AHEAD × (1 fixtures-discovery call + fixtures_in_our_13_leagues_that_day)`.
+`MAX_FIXTURES_PER_DAY = 12` caps the second term per day (mirrors
+`MAX_H2H_FETCHES_PER_RUN`/`MAX_SPORTS_PER_RUN` elsewhere in this codebase), so the
+absolute worst case (all 7 days simultaneously stacked) is `7 × (1 + 12) = 91`
+requests/day — under the 100/day Free-plan cap, but with little headroom left for
+manual testing that day. Live samples for a *single* day: a quiet day had 0 matching
+fixtures (1 request); a Champions League/Libertadores/Sudamericana day had 9 (10
+requests) — the realistic weekly total is far below the 91 worst case.
+
+**Runtime risk, not just quota**: each additional fixture within a day is paced 6.5s
+apart (`REQUEST_INTERVAL_MS` in `packages/api-football-client`) to respect the
+10/minute rate limit. In the pathological 91-request case that's ~10 minutes of pacing
+alone — close to or over Vercel's function timeout. This hasn't been hit in practice
+(real weekly totals are much lower) but if it ever is, lower `MAX_FIXTURES_PER_DAY` or
+`DAYS_AHEAD` rather than removing the pacing (that's what keeps this under the
+per-minute rate limit). Each of the 7 days is independently try/caught — one slow or
+failing day doesn't sink the other 6.
+
+If quota ever gets tight, the account holder has already said they're open to the Pro
+plan ($19/mo, 7,500/day) — free tier is enough for this integration's current scope, so
+there was no reason to start there.
 
 ### Explicitly out of scope for this integration (see grading note above too)
 
