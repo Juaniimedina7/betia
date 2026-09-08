@@ -4,13 +4,20 @@ name: Settle finished bets (hourly)
 # tambien corre desde GitHub Actions.
 #
 # /api/ingest/settle marca ganada/perdida/anulada cada pata (y despues la apuesta
-# completa) una vez que el partido terminó, consultando The Odds API SOLO para los
-# sport_keys que tengan alguna apuesta pendiente con kickoff ya pasado — no pega contra
-# la API si no hay nada que resolver, así que la mayoría de las corridas cuestan 0
-# créditos. El endpoint de scores cuesta 2 créditos fijos por llamada (confirmado en
-# vivo el 2026-09-04, ver CLAUDE.md) — correrlo cada hora es seguro porque el costo
-# real depende de cuántos sport_keys distintos tengan apuestas sin resolver en un
-# momento dado, no de la cantidad de corridas.
+# completa) una vez que el partido terminó — consultando el proveedor que corresponda
+# SOLO para los fixtures que tengan alguna apuesta pendiente con kickoff ya pasado, así
+# que la mayoría de las corridas cuestan 0 créditos en cualquiera de los dos.
+#
+# Desde 2026-09-08 (ver CLAUDE.md, "eliminar The Odds API de futbol") esto pega a DOS
+# proveedores distintos según qué escribió el fixture:
+#   - NBA/NFL/tenis (fixtureId = id de The Odds API): The Odds API's /scores, 2
+#     créditos fijos por llamada (confirmado en vivo el 2026-09-04).
+#   - Futbol (fixtureId = `apifootball:<id>`): API-Football's /fixtures?ids=, contra
+#     el mismo presupuesto de 100/día que poll-api-football-odds ya gasta la mayor
+#     parte de.
+# Correrlo cada hora es seguro porque el costo real depende de cuántos fixtures
+# distintos tengan apuestas sin resolver en un momento dado, no de la cantidad de
+# corridas.
 on:
   schedule:
     - cron: "0 * * * *"

@@ -46,3 +46,20 @@ export interface QuotaSnapshot {
   /** From x-ratelimit-remaining (per-minute cap, currently 10/min on the Free plan). */
   remainingMinute?: number;
 }
+
+/**
+ * Match result for one fixture, from `GET /fixtures?ids=`. `statusShort` is
+ * API-Football's own status code (e.g. "FT", "AET", "PEN" = finished with a valid
+ * score; "PST"/"CANC"/"ABD" = won't produce a valid score; anything else = not
+ * finished yet) — see FINISHED_STATUSES/UNPLAYED_STATUSES in index.ts for how these
+ * get interpreted. Goals are null while the match hasn't started or is still in
+ * progress.
+ */
+export interface ApiFootballFixtureResult {
+  fixtureId: string;
+  statusShort: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeGoals: number | null;
+  awayGoals: number | null;
+}

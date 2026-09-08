@@ -1,30 +1,46 @@
+import { getApiFootballClient, type ApiFootballFixtureResult } from "@bet/api-football-client";
 import { betSlipLegs, betSlips, getDb } from "@bet/db";
 import { getOddsApiClient, type Score } from "@bet/odds-api-client";
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { toMatchResult } from "@/lib/settlement/api-football-result";
 import { deriveSlipStatus } from "@/lib/settlement/derive-slip-status";
-import { gradeH2hLeg, type LegGrade } from "@/lib/settlement/grade-h2h-leg";
+import { gradeH2hLeg, type LegGrade, type MatchResult } from "@/lib/settlement/grade-h2h-leg";
 
 // Give a match time to actually finish before asking for its result.
 const SETTLE_DELAY_MS = 3 * 60 * 60 * 1000;
 // The Odds API's scores endpoint only covers the last 3 days (daysFrom's own cap) —
 // a leg older than this is left "pending" indefinitely rather than retried forever.
-// Known gap, no alerting built for it yet (see CLAUDE.md).
+// Known gap, no alerting built for it yet (see CLAUDE.md). API-Football's /fixtures
+// lookup has no such window (it's id-based, not date-scoped), but the same cutoff is
+// applied to both providers for one consistent, predictable abandonment rule.
 const MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 const DAYS_FROM = 3;
-// Defensive bound on distinct sport_keys queried per run — mirrors
-// MAX_H2H_FETCHES_PER_RUN in poll-stats/route.ts. In practice this should almost
-// never bind: most runs have zero pending sport_keys at all, since this route only
-// calls the odds API for sports that actually have an unsettled bet past kickoff.
+// Defensive bound on distinct sport_keys queried per run against The Odds API —
+// mirrors MAX_H2H_FETCHES_PER_RUN in poll-stats/route.ts. In practice this should
+// almost never bind: most runs have zero pending sport_keys at all, since this route
+// only calls the odds API for sports that actually have an unsettled bet past kickoff.
 const MAX_SPORTS_PER_RUN = 10;
+// Defensive bound on distinct API-Football fixture ids queried per run — mirrors
+// MAX_FIXTURES_PER_DAY in poll-api-football-odds/route.ts, against the same 100/day
+// Free-plan budget that route already spends most of. Batches of up to 20 ids/call
+// (see getFixtureResults), so this caps at 2 calls' worth in the pathological case.
+const MAX_API_FOOTBALL_FIXTURES_PER_RUN = 40;
+
+const API_FOOTBALL_PREFIX = "apifootball:";
 
 /**
  * Grades pending bet_slip_legs against real match results and settles their bet_slips
- * once every leg is resolved. Unlike the odds/stats crons, this one costs nothing on a
- * run with no unsettled bets — it only calls The Odds API for sport_keys that actually
- * have a pending, past-kickoff h2h leg. The scores endpoint costs a flat 2 credits per
- * call (confirmed live 2026-09-04, see CLAUDE.md) regardless of eventIds/daysFrom, so
- * keeping calls need-based (not "poll every watched sport every run" like poll/route.ts)
- * is what keeps this affordable against the already-tight monthly budget.
+ * once every leg is resolved. Costs nothing on a run with no unsettled bets — it only
+ * calls out to a provider for fixtures that actually have a pending, past-kickoff h2h
+ * leg. Routes each leg to whichever provider actually sourced its fixture:
+ * `apifootball:<id>` fixtureIds (soccer, since 2026-09-08 — see CLAUDE.md's
+ * "eliminar The Odds API de futbol" section) go through API-Football's
+ * getFixtureResults; every other fixtureId (NBA/NFL/tennis, still sourced from The
+ * Odds API) goes through the pre-existing getScores path. A soccer leg whose
+ * fixtureId predates this migration (a raw The Odds API event id, not
+ * `apifootball:`-prefixed) matches neither path and is left pending until MAX_AGE_MS
+ * abandons it — a one-time cutover gap for whatever was still in flight, not an
+ * ongoing one.
  */
 export async function GET(req: Request) {
   const cronSecret = process.env.CRON_SECRET;
@@ -59,41 +75,78 @@ export async function GET(req: Request) {
     );
 
   if (pendingLegs.length === 0) {
-    return Response.json({ legsGraded: 0, slipsSettled: 0, sportsQueried: 0 });
+    return Response.json({ legsGraded: 0, slipsSettled: 0, sportsQueried: 0, apiFootballFixturesQueried: 0 });
   }
 
+  const oddsApiLegs = pendingLegs.filter((leg) => !leg.fixtureId.startsWith(API_FOOTBALL_PREFIX));
+  const apiFootballLegs = pendingLegs.filter((leg) => leg.fixtureId.startsWith(API_FOOTBALL_PREFIX));
+
+  const resultsByFixtureId = new Map<string, MatchResult>();
+  const errors: Record<string, string> = {};
+
+  // The Odds API side — unchanged from before this migration, just scoped to
+  // oddsApiLegs instead of every pending leg.
   const fixtureIdsBySport = new Map<string, Set<string>>();
-  for (const leg of pendingLegs) {
+  for (const leg of oddsApiLegs) {
     if (!fixtureIdsBySport.has(leg.sportId)) fixtureIdsBySport.set(leg.sportId, new Set());
     fixtureIdsBySport.get(leg.sportId)!.add(leg.fixtureId);
   }
   const sportKeys = [...fixtureIdsBySport.keys()].slice(0, MAX_SPORTS_PER_RUN);
 
-  const client = getOddsApiClient();
-  const scoresByFixtureId = new Map<string, Score>();
-  const sportErrors: Record<string, string> = {};
+  let oddsApiQuota: unknown;
+  if (sportKeys.length > 0) {
+    const client = getOddsApiClient();
+    for (const sportKey of sportKeys) {
+      try {
+        const scores: Score[] = await client.getScores(sportKey, {
+          eventIds: [...fixtureIdsBySport.get(sportKey)!],
+          daysFrom: DAYS_FROM,
+        });
+        for (const score of scores) resultsByFixtureId.set(score.eventId, score);
+      } catch (err) {
+        errors[sportKey] = String(err);
+      }
+    }
+    oddsApiQuota = client.getLastQuotaSnapshot();
+  }
 
-  for (const sportKey of sportKeys) {
+  // API-Football side — soccer, since 2026-09-08. Fixture-based, not sport_key-based,
+  // so every pending soccer fixture id goes into one batched lookup regardless of
+  // which league it's in.
+  const apiFootballFixtureIds = [
+    ...new Set(apiFootballLegs.map((leg) => leg.fixtureId.slice(API_FOOTBALL_PREFIX.length))),
+  ].slice(0, MAX_API_FOOTBALL_FIXTURES_PER_RUN);
+
+  let apiFootballQuota: unknown;
+  if (apiFootballFixtureIds.length > 0) {
     try {
-      const scores = await client.getScores(sportKey, {
-        eventIds: [...fixtureIdsBySport.get(sportKey)!],
-        daysFrom: DAYS_FROM,
-      });
-      for (const score of scores) scoresByFixtureId.set(score.eventId, score);
+      const client = getApiFootballClient();
+      const results: ApiFootballFixtureResult[] = await client.getFixtureResults(apiFootballFixtureIds);
+      for (const result of results) {
+        resultsByFixtureId.set(`${API_FOOTBALL_PREFIX}${result.fixtureId}`, toMatchResult(result));
+      }
+      apiFootballQuota = client.getLastQuotaSnapshot();
     } catch (err) {
-      sportErrors[sportKey] = String(err);
+      errors.apiFootball = String(err);
     }
   }
+
+  const queriedFixtureIds = new Set([
+    ...oddsApiLegs.filter((leg) => sportKeys.includes(leg.sportId)).map((leg) => leg.fixtureId),
+    ...apiFootballLegs
+      .filter((leg) => apiFootballFixtureIds.includes(leg.fixtureId.slice(API_FOOTBALL_PREFIX.length)))
+      .map((leg) => leg.fixtureId),
+  ]);
 
   let legsGraded = 0;
   const touchedBetSlipIds = new Set<string>();
 
   for (const leg of pendingLegs) {
-    if (!sportKeys.includes(leg.sportId)) continue; // skipped this run (MAX_SPORTS_PER_RUN cap)
-    const score = scoresByFixtureId.get(leg.fixtureId);
-    if (!score) continue; // API didn't return this fixture (too old, wrong id, etc.)
+    if (!queriedFixtureIds.has(leg.fixtureId)) continue; // skipped this run (a per-run cap, or a pre-migration id neither provider can resolve)
+    const result = resultsByFixtureId.get(leg.fixtureId);
+    if (!result) continue; // provider didn't return this fixture (too old, wrong id, etc.)
 
-    const grade = gradeH2hLeg(leg, score);
+    const grade = gradeH2hLeg(leg, result);
     if (grade === null) continue; // not finished yet, or can't be graded confidently
 
     await db.update(betSlipLegs).set({ status: grade }).where(eq(betSlipLegs.id, leg.id));
@@ -119,7 +172,8 @@ export async function GET(req: Request) {
     legsGraded,
     slipsSettled,
     sportsQueried: sportKeys.length,
-    quota: client.getLastQuotaSnapshot(),
-    errors: Object.keys(sportErrors).length > 0 ? sportErrors : undefined,
+    apiFootballFixturesQueried: apiFootballFixtureIds.length,
+    quota: { oddsApi: oddsApiQuota, apiFootball: apiFootballQuota },
+    errors: Object.keys(errors).length > 0 ? errors : undefined,
   });
 }

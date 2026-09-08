@@ -1,4 +1,10 @@
-import type { ApiFootballBookmakerOdds, ApiFootballFixtureOdds, ApiFootballMarketQuote, QuotaSnapshot } from "./types";
+import type {
+  ApiFootballBookmakerOdds,
+  ApiFootballFixtureOdds,
+  ApiFootballFixtureResult,
+  ApiFootballMarketQuote,
+  QuotaSnapshot,
+} from "./types";
 
 export * from "./types";
 
@@ -62,6 +68,20 @@ interface RawFixturesResponse {
   errors: unknown;
 }
 
+interface RawFixtureStatusEntry {
+  fixture: { id: number; status: { short: string } };
+  teams: RawFixtureTeams;
+  goals: { home: number | null; away: number | null };
+}
+
+interface RawFixtureStatusResponse {
+  response: RawFixtureStatusEntry[];
+  errors: unknown;
+}
+
+/** How many fixture ids `GET /fixtures?ids=` accepts in one call, per API-Football's own docs. */
+const MAX_IDS_PER_FIXTURES_REQUEST = 20;
+
 /** "Both Teams Score" -> "both_teams_score". Used as the market key inside bookmakerOdds. */
 function slugifyMarketName(name: string): string {
   return name
@@ -80,8 +100,9 @@ function bookmakerKeyFor(name: string): string {
  * key: same real-world market (who wins the match), and merging it in means a Bet365/
  * Pinnacle-via-API-Football h2h price sits alongside The Odds API's own bookmakers
  * under the same "h2h" key — visible to build_combo's de-vig comparison, and gradable
- * by the existing (unmodified) grade-h2h-leg.ts, since that only cares about the
- * marketId string and the team-name outcome strings, not which provider supplied them.
+ * by grade-h2h-leg.ts (provider-agnostic since 2026-09-08, see MatchResult there),
+ * since that only cares about the marketId string and the team-name outcome strings,
+ * not which provider supplied them.
  *
  * API-Football's raw outcome values for this market are generic "Home"/"Draw"/"Away"
  * (not team names), so they're translated here using the fixture's own team names to
@@ -281,6 +302,42 @@ export class ApiFootballClient {
       });
     }
     return fixtures;
+  }
+
+  /**
+   * Match status + score for a batch of fixture ids, via `GET /fixtures?ids=1-2-3`
+   * (id-based, so — like the other calls in this client — it isn't blocked by the
+   * Free plan's current-season restriction on `league`+`season`-scoped endpoints).
+   * Used by /api/ingest/settle to grade soccer bet_slip_legs, which is only possible
+   * because settle now needs results for fixtures API-Football itself sourced (their
+   * own numeric fixture ids, stored as the `apifootball:<id>` odds_cache eventId) —
+   * see apps/web/app/api/ingest/settle/route.ts and CLAUDE.md's "eliminar The Odds
+   * API de futbol" section.
+   *
+   * Batches at MAX_IDS_PER_FIXTURES_REQUEST ids/call (API-Football's own cap) and
+   * paces batches at the same REQUEST_INTERVAL_MS as getOddsForLeagues to respect the
+   * 10/minute rate limit. A fixture id API-Football doesn't recognize (wrong id,
+   * postponed off its schedule, etc.) is simply absent from the result — callers
+   * should treat a missing id as "leave pending", not an error.
+   */
+  async getFixtureResults(fixtureIds: string[]): Promise<ApiFootballFixtureResult[]> {
+    const results: ApiFootballFixtureResult[] = [];
+    for (let i = 0; i < fixtureIds.length; i += MAX_IDS_PER_FIXTURES_REQUEST) {
+      if (i > 0) await new Promise((resolve) => setTimeout(resolve, REQUEST_INTERVAL_MS));
+      const batch = fixtureIds.slice(i, i + MAX_IDS_PER_FIXTURES_REQUEST);
+      const raw = await this.request<RawFixtureStatusResponse>("/fixtures", { ids: batch.join("-") });
+      for (const entry of raw.response) {
+        results.push({
+          fixtureId: String(entry.fixture.id),
+          statusShort: entry.fixture.status.short,
+          homeTeam: entry.teams.home.name,
+          awayTeam: entry.teams.away.name,
+          homeGoals: entry.goals.home,
+          awayGoals: entry.goals.away,
+        });
+      }
+    }
+    return results;
   }
 }
 

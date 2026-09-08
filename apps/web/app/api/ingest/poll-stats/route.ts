@@ -3,16 +3,16 @@ import { getHighlightlyClient, HighlightlyError } from "@bet/highlightly-client"
 import { buildTeamKey, LEAGUE_MAP } from "@bet/mcp-tools";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { resolveTeamName, type NamedTeamCandidate } from "@/lib/ingest/team-name-matching";
-import { watchedSportKeys } from "@/lib/ingest/watched-sport-keys";
+import { WATCHED_SOCCER_SPORT_KEYS } from "@/lib/ingest/watched-sport-keys";
 
 // Budget: Highlightly's BASIC plan is 100 requests/DAY, with no per-minute throttle
 // observed in testing — see CLAUDE.md's "Highlightly quota" section. `/standings`
 // returns every team's current-season home/away stats for an entire league in ONE
-// call, so refreshing all 16 watched leagues every run costs a flat 16 requests —
-// cheap enough to just always do, no staleness tracking needed for team stats at all.
-// Head-to-head is still pairwise (one call per team pair), so that side keeps a
-// staleness window + per-run cap: `1 run/day × (16 standings + 15 h2h) = 31
-// requests/day`, well under the 100/day cap.
+// call, so refreshing all 13 watched leagues (WATCHED_SOCCER_SPORT_KEYS) every run
+// costs a flat 13 requests — cheap enough to just always do, no staleness tracking
+// needed for team stats at all. Head-to-head is still pairwise (one call per team
+// pair), so that side keeps a staleness window + per-run cap: `1 run/day × (13
+// standings + 15 h2h) = 28 requests/day`, well under the 100/day cap.
 const MAX_H2H_FETCHES_PER_RUN = 15;
 const MAX_CANDIDATE_FIXTURES = 150;
 
@@ -50,10 +50,13 @@ export async function GET(req: Request) {
   }
 
   const db = getDb();
-  // watchedSportKeys() now spans NBA/NFL/tennis too (see CLAUDE.md's "Multi-sport"
-  // section) — LEAGUE_MAP only has soccer entries, so this filter naturally keeps
-  // Highlightly stats scoped to soccer without any extra logic here.
-  const mappedSportKeys = (await watchedSportKeys()).filter((key) => key in LEAGUE_MAP);
+  // Deliberately WATCHED_SOCCER_SPORT_KEYS, not watchedSportKeys() — since 2026-09-08
+  // soccer odds moved entirely to API-Football and watchedSportKeys() only spans the
+  // sports The Odds API still polls (NBA/NFL/tennis, none of which are in LEAGUE_MAP).
+  // Highlightly stats are unrelated to either odds provider, so this list is its own
+  // source of truth for which soccer leagues to refresh, filtered defensively against
+  // LEAGUE_MAP in case the two lists ever drift.
+  const mappedSportKeys = WATCHED_SOCCER_SPORT_KEYS.filter((key) => key in LEAGUE_MAP);
 
   const errors: { stage: string; sportKey?: string; message: string }[] = [];
   let leaguesRefreshed = 0;

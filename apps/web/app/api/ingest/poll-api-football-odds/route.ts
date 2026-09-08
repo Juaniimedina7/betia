@@ -24,12 +24,24 @@ const WATCHED_LEAGUE_IDS = new Set(Object.values(API_FOOTBALL_LEAGUE_IDS));
 // API-Football has 33 possible bookmakers per its own /odds/bookmakers catalog; without
 // this allowlist every one of them that has odds for a fixture would come through.
 // Case-insensitive match against API-Football's own bookmaker `name` field.
+//
+// NOTE (2026-09-08): since soccer moved entirely to API-Football, these 2 bookmakers
+// are now soccer's ENTIRE bookmaker set, not a complement to The Odds API's 7
+// (pinnacle/unibet/betano_uk/codere_it/betsson/betway/espnbet) the way they used to
+// be — soccer's price-comparison coverage genuinely shrank as a side effect of this
+// migration. Widening this list is a separate, deliberate product decision — not done
+// here — see CLAUDE.md.
 const DEFAULT_API_FOOTBALL_BOOKMAKERS = ["bet365", "1xbet"];
 
-// This route must run AFTER /api/ingest/poll in the same cron job: it merges
-// API-Football's odds into rows The Odds API already wrote for the same fixture
-// (matched by team name + kickoff time, see fixture-matching.ts), and only falls back
-// to inserting a new row when no match exists yet.
+// Since 2026-09-08 this is the ONLY source of soccer odds — The Odds API no longer
+// polls any soccer sport_key at all (see watched-sport-keys.ts and CLAUDE.md's
+// "eliminar The Odds API de futbol" section). The team-name/kickoff-time matching
+// below (fixture-matching.ts) now mostly matches a fixture against a row this same
+// route inserted on an earlier run (correctly folding repeated runs' bookmaker odds
+// into one row per real-world fixture) rather than against a row The Odds API wrote —
+// the insert branch only fires the first time a given fixture is seen. It's also a
+// harmless no-op safety net for any pre-migration odds_cache row that hasn't expired
+// yet (self-cleans via the hourly cleanup cron once its kickoff passes).
 export async function GET(req: Request) {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = req.headers.get("authorization");

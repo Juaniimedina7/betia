@@ -6,14 +6,15 @@ import { watchedSportKeys } from "@/lib/ingest/watched-sport-keys";
 const ODDS_CACHE_TTL_SECONDS = 120;
 // Pinnacle stays as the de-vig reference (sharp book, low vig). The rest were picked
 // by hand (2026-09-02) from a live GET /v4/sports/{sport}/odds survey of all 66
-// bookmakers The Odds API returns across the 16 watched leagues — bet365 isn't among
-// them at all (confirmed live, licensing). Coverage isn't uniform across leagues (a
-// given book can be missing from some of the 16), so build_combo's `bookmaker` filter
-// may still come up empty for an off-coverage league/book combination even though the
-// book is in this list. Adding/removing bookmakers here costs nothing extra in quota
-// — The Odds API bills per market requested, not per bookmaker (see CLAUDE.md's "The
-// Odds API quota" section) — but redo that section's budget math before changing the
-// market list or the cron cadence.
+// bookmakers The Odds API returns, back when this list still covered soccer too —
+// bet365 isn't among them at all (confirmed live, licensing). Since 2026-09-08 this
+// route no longer polls soccer at all (see watched-sport-keys.ts's
+// DEFAULT_WATCHED_SPORT_KEYS and CLAUDE.md) — soccer odds come exclusively from
+// API-Football (poll-api-football-odds/route.ts) now, so this bookmaker list only
+// actually matters for NBA/NFL/tennis coverage. Adding/removing bookmakers here costs
+// nothing extra in quota — The Odds API bills per market requested, not per bookmaker
+// (see CLAUDE.md's "The Odds API quota" section) — but redo that section's budget math
+// before changing the market list or the cron cadence.
 const DEFAULT_BOOKMAKERS = ["pinnacle", "betano_uk", "codere_it", "betsson", "betway"];
 const MARKETS = ["h2h"];
 

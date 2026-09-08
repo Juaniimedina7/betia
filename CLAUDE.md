@@ -479,6 +479,77 @@ was actually flowing:
   `outcomeName` match, unworkable for player names that come through raw from
   API-Football.
 
+## Eliminar The Odds API de fútbol (2026-09-08)
+
+**Soccer odds now come exclusively from API-Football.** The Odds API is no longer
+polled for any soccer `sport_key` at all — `apps/web/lib/ingest/watched-sport-keys.ts`'s
+`DEFAULT_WATCHED_SPORT_KEYS` (the list `/api/ingest/poll` actually requests odds for)
+shrank to just `["basketball_nba", "americanfootball_nfl"]` (plus the existing dynamic
+tennis discovery, unchanged). The Odds API itself is **not** gone from the app — NBA,
+NFL, and tennis still depend on it entirely, and it's still the client
+`packages/odds-api-client` wraps — this only removes it from the soccer path.
+
+The 13 soccer leagues themselves didn't change; they moved to their own constant,
+`WATCHED_SOCCER_SPORT_KEYS` in the same `watched-sport-keys.ts` file, kept separate
+from the odds watchlist specifically because Highlightly stats ingestion
+(`apps/web/app/api/ingest/poll-stats/route.ts`) also depended on the old combined list
+to know which soccer leagues to refresh standings/head-to-head for and which
+`odds_cache` sport_keys to pull candidate fixtures (team names) from — that dependency
+has nothing to do with either odds provider (see "Highlightly quota" below) and would
+have silently broken (zero soccer stats refreshed, `estimate_match_probability`
+returning `resolved:false` for every soccer match) if soccer had simply been deleted
+from one shared list instead of being split into its own.
+
+**Quota impact**: `/api/ingest/poll`'s monthly footprint against The Odds API's 500/mo
+cap dropped from ~450-510/month (right up against the cap) to ~60-120/month (2 fixed
+sport_keys + up to 2 tennis, × 30 runs/month) — see the updated math in
+`.github/workflows/poll-odds.yml`. `poll-api-football-odds/route.ts`'s own budget
+(~91 requests/day worst case against its 100/day cap, unchanged — see "Complementary
+odds provider: API-Football" above) was already sized assuming it was the *only*
+soccer source going forward, so nothing there needed to change.
+
+**Bookmaker coverage for soccer genuinely shrank as a side effect, not an oversight.**
+Before this change, a soccer match could show up to 9 bookmakers (The Odds API's 7 —
+`pinnacle`/`unibet`/`betano_uk`/`codere_it`/`betsson`/`betway`/`espnbet` — plus
+API-Football's 2 — `bet365`/`1xbet`). Now it's only ever those 2, since
+`DEFAULT_API_FOOTBALL_BOOKMAKERS` in `poll-api-football-odds/route.ts` was never
+widened — that was a deliberate choice to keep this change scoped to "remove The Odds
+API from soccer," not "also redesign soccer's bookmaker policy." Widening that
+allowlist (subject to which of the 33 bookmakers API-Football's catalog actually has
+real per-fixture coverage for) is a separate follow-up if the narrower coverage turns
+out to matter in practice.
+
+**Settlement (auto-grading) needed a real second implementation, not just a
+config change.** `/api/ingest/settle` graded every pending h2h leg via The Odds API's
+`getScores`, keyed by `bet_slip_legs.fixtureId` — which for a soccer leg saved after
+this migration is `` `apifootball:<id>` ``, an id The Odds API has never heard of.
+Left alone, every soccer bet would sit `pending` forever (silently abandoned after
+`MAX_AGE_MS` = 3 days, same as the pre-existing non-h2h gap documented below). Instead:
+
+- `packages/api-football-client` gained `ApiFootballClient.getFixtureResults(fixtureIds)`,
+  wrapping `GET /fixtures?ids=1-2-3` (batched at 20 ids/call, API-Football's own cap,
+  paced at the same `REQUEST_INTERVAL_MS` as the odds-fetching path to respect the
+  10/minute rate limit). Id-based, like the other calls this client makes, so — same as
+  `/fixtures?date=` and `/odds?fixture=` — it isn't blocked by the Free plan's
+  current-season restriction on `league`+`season`-scoped endpoints.
+- `apps/web/lib/settlement/grade-h2h-leg.ts`'s `gradeH2hLeg` was decoupled from
+  `@bet/odds-api-client`'s `Score` type — it now takes a provider-agnostic
+  `MatchResult` (`{completed, scores: {name, score}[] | null}`) that both `Score` and a
+  new `apps/web/lib/settlement/api-football-result.ts` (`toMatchResult`, mapping
+  API-Football's `statusShort`/goals onto the same shape) satisfy. Grading logic itself
+  is unchanged — same "don't guess, void or leave pending" rules as before.
+- `apps/web/app/api/ingest/settle/route.ts` now splits pending legs by fixtureId prefix
+  (`apifootball:` → API-Football's `getFixtureResults`; anything else → The Odds API's
+  `getScores`, exactly as before) and grades both through the same `gradeH2hLeg`. A new
+  `MAX_API_FOOTBALL_FIXTURES_PER_RUN = 40` defensively bounds this route's own draw
+  against API-Football's 100/day budget, mirroring `MAX_SPORTS_PER_RUN` for The Odds
+  API side.
+- **Accepted one-time cutover gap**: a soccer leg saved *before* this migration has a
+  raw The Odds API event id as its `fixtureId`, not `apifootball:`-prefixed — it
+  matches neither provider path and is left pending until `MAX_AGE_MS` abandons it.
+  Nothing was built to migrate or re-key old in-flight legs; this is a one-time cost of
+  the cutover, not an ongoing gap.
+
 ## Highlightly quota (2026-08-31)
 
 Second external data source, added for statistical (Poisson-model) win/draw/loss

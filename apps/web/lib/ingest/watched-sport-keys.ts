@@ -2,19 +2,18 @@ import { getDb, sportsCache } from "@bet/db";
 import { and, eq } from "drizzle-orm";
 
 /**
- * Fixed watchlist: soccer leagues, plus the two "always-on" major team sports (NBA,
- * NFL) that — like soccer — each run as a single stable sport_key year-round. Tennis
- * is NOT here; see watchedTennisSportKeys below.
- *
- * Trimmed 2026-09-03 to make room for NBA/NFL/tennis within the same monthly budget:
- * dropped Copa America (out of season anyway, no active edition) and, to free up
- * enough headroom, the two lowest-volume domestic leagues remaining after the
- * continental cups — Portugal Primeira Liga and Chile Primera Division. The
- * continental cups (Libertadores/Sudamericana) stay per the original 2026-09-02
- * migration's decision to protect them. Redo the budget math in CLAUDE.md's "The Odds
- * API quota" section before adding any of these back.
+ * Soccer leagues this product covers — kept as its own list (2026-09-08) now that
+ * soccer odds come exclusively from API-Football (see
+ * apps/web/app/api/ingest/poll-api-football-odds/route.ts and CLAUDE.md's "eliminar
+ * The Odds API de futbol" section). The Odds API is no longer polled for any of these
+ * — this list is used only by apps/web/app/api/ingest/poll-stats/route.ts (Highlightly
+ * stats, unrelated to either odds provider) to pick which leagues' standings/H2H to
+ * refresh and which odds_cache sport_keys to pull candidate fixtures (team names) from.
+ * Same 13 leagues as before the migration; see git history for why each one is here
+ * (continental cups protected, Portugal/Chile/Copa America cut for the old Odds-API
+ * quota, Uruguay/Colombia not covered by any provider at all).
  */
-export const DEFAULT_WATCHED_SPORT_KEYS = [
+export const WATCHED_SOCCER_SPORT_KEYS = [
   // Europe — top flights
   "soccer_epl", // England: Premier League
   "soccer_spain_la_liga", // Spain: LaLiga
@@ -32,10 +31,18 @@ export const DEFAULT_WATCHED_SPORT_KEYS = [
   "soccer_argentina_primera_division", // Argentina: Liga Profesional
   "soccer_brazil_campeonato", // Brazil: Brasileiro Serie A
   "soccer_mexico_ligamx", // Mexico: Liga MX
-  // Other sports
-  "basketball_nba", // NBA
-  "americanfootball_nfl", // NFL
 ];
+
+/**
+ * Fixed watchlist for The Odds API odds polling (/api/ingest/poll) — the two
+ * "always-on" major team sports that, like soccer used to, each run as a single
+ * stable sport_key year-round. Tennis is NOT here; see watchedTennisSportKeys below.
+ *
+ * Soccer was removed from this list entirely on 2026-09-08 — see
+ * WATCHED_SOCCER_SPORT_KEYS above and CLAUDE.md — so this cron no longer touches
+ * soccer at all, drastically shrinking its monthly-quota footprint versus before.
+ */
+export const DEFAULT_WATCHED_SPORT_KEYS = ["basketball_nba", "americanfootball_nfl"];
 
 /**
  * Caps how many currently-active tennis tournaments get polled per run — a defensive

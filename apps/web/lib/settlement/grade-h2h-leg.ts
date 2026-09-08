@@ -1,5 +1,3 @@
-import type { Score } from "@bet/odds-api-client";
-
 export type LegGrade = "won" | "lost" | "void";
 
 interface GradableLeg {
@@ -12,11 +10,24 @@ interface GradableLeg {
 }
 
 /**
- * Grades a single h2h (moneyline) leg against a fetched Score. Returns null when the
- * match hasn't finished yet (or its result can't be determined with confidence) — the
- * caller should leave the leg "pending" rather than guess.
+ * Provider-agnostic match result shape — deliberately decoupled from
+ * @bet/odds-api-client's `Score` type (2026-09-08) so this same grading logic can
+ * also grade soccer legs against API-Football's fixture-status results, not just The
+ * Odds API's. `Score` and the API-Football result mapper (see
+ * apps/web/app/api/ingest/settle/route.ts) both normalize into this shape.
  */
-export function gradeH2hLeg(leg: GradableLeg, score: Score): LegGrade | null {
+export interface MatchResult {
+  completed: boolean;
+  /** Null while not started, or for a completed-but-unplayable event (postponed/cancelled). */
+  scores: { name: string; score: string }[] | null;
+}
+
+/**
+ * Grades a single h2h (moneyline) leg against a fetched match result. Returns null
+ * when the match hasn't finished yet (or its result can't be determined with
+ * confidence) — the caller should leave the leg "pending" rather than guess.
+ */
+export function gradeH2hLeg(leg: GradableLeg, score: MatchResult): LegGrade | null {
   if (!score.completed) return null;
 
   // Postponed/cancelled events come back completed with no scores — nothing to grade.
