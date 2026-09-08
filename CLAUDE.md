@@ -74,19 +74,23 @@ live: requesting 2 bookmakers with `markets=h2h` cost 1 credit; `markets=h2h,tot
 cost 2). OddsPapi billed per HTTP call with a 5-tournament batch cap; that formula does
 not apply here.
 
-`.github/workflows/poll-odds.yml` runs `/api/ingest/poll` **once a day at 17:00
-Argentina time / 20:00 UTC** (`0 20 * * *` — changed from `0 9 * * *` on 2026-09-03 to
-land the refresh closer to when the primary audience actually uses the platform)
-requesting **1 market** (`h2h`) across **15 fixed `sport_key`s** (13 soccer leagues +
-`basketball_nba` + `americanfootball_nfl`, see `apps/web/lib/ingest/watched-sport-keys.ts`)
+`.github/workflows/poll-odds.yml` runs `/api/ingest/poll` **twice a day, at 12:00 and
+18:00 Argentina time / 15:00 and 21:00 UTC** (`0 15 * * *` + `0 21 * * *` — changed from
+once/day at `0 20 * * *` on 2026-09-08, same day `DAYS_AHEAD` was narrowed in the
+API-Football poll below to keep that step's own daily budget under its cap at the new
+cadence) requesting **1 market** (`h2h`) — see the "eliminar The Odds API de futbol"
+section below for why soccer is no longer part of this sport_key list at all —
+across **2 fixed `sport_key`s** (`basketball_nba` + `americanfootball_nfl`, see
+`apps/web/lib/ingest/watched-sport-keys.ts`)
 **plus up to 2 dynamically-discovered active tennis tournaments** (see the "Multi-sport"
 subsection below) and **7 bookmakers** (`DEFAULT_BOOKMAKERS = ["pinnacle", "unibet",
 "betano_uk", "codere_it", "betsson", "betway", "espnbet"]` in
 `apps/web/app/api/ingest/poll/route.ts`, overridable via `ODDSAPI_BOOKMAKERS`) — one
-`GET /v4/sports/{sport}/odds` call per watched sport_key, so 15–17 requests/run × ~30
-runs/month ≈ 450–510/month, close to the 500 cap but with margin most months (the
-17-request peak only happens when 2 tennis tournaments are simultaneously active,
-which isn't year-round). **The bookmaker count doesn't affect this math at all** —
+`GET /v4/sports/{sport}/odds` call per watched sport_key, so 2–4 requests/run × ~60
+runs/month (2 runs/day since 2026-09-08) ≈ 120–240/month, comfortably under the 500
+cap (the 4-request peak only happens when 2 tennis tournaments are simultaneously
+active, which isn't year-round). **The bookmaker count doesn't affect this math at
+all** —
 cost is per market requested, not per bookmaker (see above), so 7 bookmakers cost
 exactly the same as 2 did. The route also refreshes `sports_cache` every run
 (`listSports()`, free — no market param, doesn't count toward the per-market cost
@@ -385,24 +389,28 @@ cosmetic/transient issue, not a permanent one) until it's specifically special-c
 **Widened from 1 day ahead to `DAYS_AHEAD = 7` on 2026-09-08** — with a 1-day window,
 anything a user browsed on `/odds` beyond tomorrow only ever had The Odds API's `h2h`
 (confirmed live: Argentina Primera fixtures 4-8 days out showed no API-Football
-markets at all, since the route had never queried those dates yet). `requests/day ≈
-DAYS_AHEAD × (1 fixtures-discovery call + fixtures_in_our_13_leagues_that_day)`.
-`MAX_FIXTURES_PER_DAY = 12` caps the second term per day (mirrors
-`MAX_H2H_FETCHES_PER_RUN`/`MAX_SPORTS_PER_RUN` elsewhere in this codebase), so the
-absolute worst case (all 7 days simultaneously stacked) is `7 × (1 + 12) = 91`
-requests/day — under the 100/day Free-plan cap, but with little headroom left for
-manual testing that day. Live samples for a *single* day: a quiet day had 0 matching
-fixtures (1 request); a Champions League/Libertadores/Sudamericana day had 9 (10
-requests) — the realistic weekly total is far below the 91 worst case.
+markets at all, since the route had never queried those dates yet). **Narrowed to
+`DAYS_AHEAD = 3` the same day the cron moved from once/day to twice/day** (12:00 and
+18:00 Argentina time, see `.github/workflows/poll-odds.yml`) — at `DAYS_AHEAD = 7`, two
+runs/day would have been `2 × 7 × 13 = 182` requests/day, over the 100/day cap.
+`requests/day ≈ runs/day × DAYS_AHEAD × (1 fixtures-discovery call +
+fixtures_in_our_13_leagues_that_day)`. `MAX_FIXTURES_PER_DAY = 12` caps the last term
+per day (mirrors `MAX_H2H_FETCHES_PER_RUN`/`MAX_SPORTS_PER_RUN` elsewhere in this
+codebase), so the absolute worst case (all 3 days simultaneously stacked, both runs) is
+`2 × 3 × (1 + 12) = 78` requests/day — under the 100/day Free-plan cap. Live samples for
+a *single* day: a quiet day had 0 matching fixtures (1 request); a Champions
+League/Libertadores/Sudamericana day had 9 (10 requests) — the realistic daily total is
+far below the 78 worst case.
 
 **Runtime risk, not just quota**: each additional fixture within a day is paced 6.5s
 apart (`REQUEST_INTERVAL_MS` in `packages/api-football-client`) to respect the
-10/minute rate limit. In the pathological 91-request case that's ~10 minutes of pacing
-alone — close to or over Vercel's function timeout. This hasn't been hit in practice
-(real weekly totals are much lower) but if it ever is, lower `MAX_FIXTURES_PER_DAY` or
-`DAYS_AHEAD` rather than removing the pacing (that's what keeps this under the
-per-minute rate limit). Each of the 7 days is independently try/caught — one slow or
-failing day doesn't sink the other 6.
+10/minute rate limit. In the pathological worst case for one run (3 days × 12
+fixtures = 36 fixtures) that's ~4 minutes of pacing alone, comfortably under Vercel's
+function timeout. This hasn't been hit in practice (real daily totals are much lower)
+but if it ever is, lower `MAX_FIXTURES_PER_DAY` or `DAYS_AHEAD` rather than removing the
+pacing (that's what keeps this under the per-minute rate limit). Each of the
+`DAYS_AHEAD` days is independently try/caught — one slow or failing day doesn't sink
+the others.
 
 If quota ever gets tight, the account holder has already said they're open to the Pro
 plan ($19/mo, 7,500/day) — free tier is enough for this integration's current scope, so
@@ -501,23 +509,35 @@ returning `resolved:false` for every soccer match) if soccer had simply been del
 from one shared list instead of being split into its own.
 
 **Quota impact**: `/api/ingest/poll`'s monthly footprint against The Odds API's 500/mo
-cap dropped from ~450-510/month (right up against the cap) to ~60-120/month (2 fixed
-sport_keys + up to 2 tennis, × 30 runs/month) — see the updated math in
-`.github/workflows/poll-odds.yml`. `poll-api-football-odds/route.ts`'s own budget
-(~91 requests/day worst case against its 100/day cap, unchanged — see "Complementary
-odds provider: API-Football" above) was already sized assuming it was the *only*
-soccer source going forward, so nothing there needed to change.
+cap dropped from ~450-510/month (right up against the cap) to ~120-240/month (2 fixed
+sport_keys + up to 2 tennis, × ~60 runs/month at the twice-daily cadence — see below) —
+see the updated math in `.github/workflows/poll-odds.yml`. `poll-api-football-odds/
+route.ts`'s own budget was already sized assuming it was the *only* soccer source going
+forward, so nothing there needed to change **at the time** — it was later revised on
+2026-09-08 when the cron itself moved from once/day to twice/day (12:00/18:00 Argentina
+time) and `DAYS_AHEAD` was narrowed from 7 to 3 to keep its worst case (`2 × 3 × 13 =
+78` requests/day) under its 100/day cap — see "API-Football" → "Budget" above for the
+current numbers.
 
-**Bookmaker coverage for soccer genuinely shrank as a side effect, not an oversight.**
-Before this change, a soccer match could show up to 9 bookmakers (The Odds API's 7 —
-`pinnacle`/`unibet`/`betano_uk`/`codere_it`/`betsson`/`betway`/`espnbet` — plus
-API-Football's 2 — `bet365`/`1xbet`). Now it's only ever those 2, since
-`DEFAULT_API_FOOTBALL_BOOKMAKERS` in `poll-api-football-odds/route.ts` was never
-widened — that was a deliberate choice to keep this change scoped to "remove The Odds
-API from soccer," not "also redesign soccer's bookmaker policy." Widening that
-allowlist (subject to which of the 33 bookmakers API-Football's catalog actually has
-real per-fixture coverage for) is a separate follow-up if the narrower coverage turns
-out to matter in practice.
+**Bookmaker coverage for soccer genuinely shrank as a side effect, not an oversight**
+(as of the original 2026-09-08 cutover). Before this change, a soccer match could show
+up to 9 bookmakers (The Odds API's 7 — `pinnacle`/`unibet`/`betano_uk`/`codere_it`/
+`betsson`/`betway`/`espnbet` — plus API-Football's 2 — `bet365`/`1xbet`). It dropped to
+just those 2 at first, since `DEFAULT_API_FOOTBALL_BOOKMAKERS` in
+`poll-api-football-odds/route.ts` wasn't widened right away — that was a deliberate
+choice to keep that day's change scoped to "remove The Odds
+API from soccer," not "also redesign soccer's bookmaker policy." **Widened later the
+same day**: `betano` and `betsson` were added to `DEFAULT_API_FOOTBALL_BOOKMAKERS`
+(confirmed live via `GET /odds/bookmakers` that both exist in API-Football's 33-book
+catalog — ids 32 and 26 respectively), so soccer is now back up to 4 bookmakers
+(`bet365`/`1xbet`/`betano`/`betsson`) — still short of the pre-cutover 9, and still
+not guaranteed per-fixture (see the "coverage isn't uniform" caveat above). This adds
+no request cost — API-Football bills per fixture, not per bookmaker, so widening the
+allowlist only changes what gets kept from a response already being paid for.
+`apps/web/lib/bookmaker-links.ts` needed matching `af:betano`/`af:betsson` entries
+(distinct from the pre-existing unprefixed `betano_uk`/`betsson` keys, which are The
+Odds API's and no longer used for soccer) so the UI shows a real name/link instead of
+falling back to the raw key.
 
 **Settlement (auto-grading) needed a real second implementation, not just a
 config change.** `/api/ingest/settle` graded every pending h2h leg via The Odds API's

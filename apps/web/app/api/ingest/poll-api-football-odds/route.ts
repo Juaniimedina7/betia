@@ -4,16 +4,20 @@ import { eq, sql } from "drizzle-orm";
 import { API_FOOTBALL_LEAGUE_IDS, sportKeyForApiFootballLeague } from "@/lib/ingest/api-football-league-map";
 import { matchFixture, type OddsCacheFixtureCandidate } from "@/lib/ingest/fixture-matching";
 
-// How many days ahead of today this route looks — widened from 1 to 7 (2026-09-08) so
-// fixtures browsed on /odds show enriched markets well before their own "tomorrow",
-// not only the single day right after each run. See CLAUDE.md's "API-Football odds
-// quota" section for the budget math this and MAX_FIXTURES_PER_DAY are based on.
-const DAYS_AHEAD = 7;
+// How many days ahead of today this route looks — was widened from 1 to 7 on
+// 2026-09-08 so fixtures browsed on /odds show enriched markets well before their own
+// "tomorrow"; narrowed to 3 the same day the cron moved from once/day to twice/day
+// (12:00 and 18:00 Argentina time, see .github/workflows/poll-odds.yml) — at
+// DAYS_AHEAD=7 two runs/day would have been 2 x 7 x 13 = 182 requests/day, over the
+// 100/day Free-plan cap. See CLAUDE.md's "API-Football odds quota" section for the
+// budget math this and MAX_FIXTURES_PER_DAY are based on.
+const DAYS_AHEAD = 3;
 
 // Defensive per-day cap on how many per-fixture /odds calls one run makes — a
 // pathological day (e.g. a Champions League matchday with many simultaneous kickoffs
 // across our watched competitions) shouldn't be able to blow the 100/day Free-plan
-// budget across the whole DAYS_AHEAD window in one run.
+// budget. Worst case with DAYS_AHEAD=3 and 2 runs/day: 2 x 3 x (1 discovery + 12
+// fixtures) = 78 requests/day, under the 100/day cap.
 const MAX_FIXTURES_PER_DAY = 12;
 
 const WATCHED_LEAGUE_IDS = new Set(Object.values(API_FOOTBALL_LEAGUE_IDS));
