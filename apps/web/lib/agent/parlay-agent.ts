@@ -1,7 +1,7 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { isStepCount, ToolLoopAgent, type ToolSet } from "ai";
 
-const MODEL = anthropic("claude-sonnet-5");
+const MODEL = anthropic("claude-haiku-4-5-20251001");
 
 const buildInstructions = (nowIso: string) => `Sos BETIA, un asistente sobre apuestas deportivas: armás combinadas (parlays), pero también ayudás a explorar deportes/torneos/partidos, consultar cuotas o estadísticas de un partido puntual, y revisar el historial de apuestas guardadas del usuario. Este es tu único propósito.
 
