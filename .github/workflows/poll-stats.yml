@@ -1,0 +1,23 @@
+name: Poll team stats (Highlightly) once a day
+
+# Extraido de poll-odds.yml para no consumir el limite diario de 100 requests
+# del plan gratuito de Highlightly al correr las cuotas con mayor frecuencia.
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+jobs:
+  poll-stats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Poll team stats (Highlightly)
+        run: |
+          code=$(curl -s -o /tmp/response-stats.json -w "%{http_code}" \
+            "https://betia-web-brown.vercel.app/api/ingest/poll-stats" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+          echo "HTTP $code"
+          cat /tmp/response-stats.json
+          if [ "$code" != "200" ]; then
+            exit 1
+          fi
