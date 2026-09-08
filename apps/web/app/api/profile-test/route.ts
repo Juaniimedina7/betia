@@ -1,6 +1,30 @@
 import { auth } from "@clerk/nextjs/server";
-import { saveProfileTestResult } from "@bet/db";
+import { getUserBetProfile, saveProfileTestResult } from "@bet/db";
 import { RESULTS, TEAMS } from "@/lib/profile-test";
+
+/**
+ * Perfil actual del usuario, para las pantallas que no pueden leerlo en el
+ * servidor. `/agent` es un client component entero (a diferencia del tablero de
+ * home, que recibe el perfil como prop desde `app/page.tsx`) y necesita esto
+ * para decidir si muestra el CTA del test.
+ *
+ * Devuelve `betProfile: null` si algo falla, en vez de un 500: el CTA es un
+ * extra y no vale la pena romper el chat por él — misma lógica que el
+ * `.catch(() => undefined)` de `app/page.tsx`.
+ */
+export async function GET() {
+  const { userId } = await auth();
+  if (!userId) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  try {
+    return Response.json({ betProfile: await getUserBetProfile(userId) });
+  } catch (err) {
+    console.error("[profile-test] read_failed", err);
+    return Response.json({ betProfile: null });
+  }
+}
 
 /**
  * Persiste el resultado de `/profileTest` en `users.bet_profile` y `users.team`.

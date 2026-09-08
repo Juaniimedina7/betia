@@ -34,7 +34,11 @@ export function AgentChatPanel({
   outOfRuns: boolean;
   error?: Error;
   onSend: (text: string) => void;
-  /** Clerk publicMetadata.betProfile — "unspecified" hasta que el usuario haga el test. */
+  /**
+   * `users.bet_profile` en Postgres (vía `getUserBetProfile`), no Clerk:
+   * "unspecified" hasta que el usuario haga el test, y `undefined` si la
+   * consulta falló — en ese caso el CTA del test no se muestra.
+   */
   betProfile?: string;
 }) {
   const [input, setInput] = useState("");

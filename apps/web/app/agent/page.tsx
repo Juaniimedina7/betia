@@ -30,6 +30,9 @@ export default function AgentPage() {
   });
   const busy = status === "streaming" || status === "submitted";
   const [usage, setUsage] = useState<Usage | null>(null);
+  // `users.bet_profile`. Sólo se usa para decidir si mostrar el CTA del test, así
+  // que arranca en null y se queda ahí si la lectura falla: el CTA no aparece.
+  const [betProfile, setBetProfile] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   // Only follow new content when the user is already near the bottom, so we never
   // yank them down while they're scrolled up reading earlier messages.
@@ -47,6 +50,23 @@ export default function AgentPage() {
   useEffect(() => {
     refreshUsage();
   }, [refreshUsage]);
+
+  // Una sola vez al montar: el perfil sólo cambia al terminar el test, y volver
+  // de `/profileTest` remonta esta página igual.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/profile-test")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data) setBetProfile(data.betProfile ?? null);
+      })
+      .catch(() => {
+        // ignore — sin perfil simplemente no se muestra el CTA del test
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (status === "ready") refreshUsage();
@@ -121,6 +141,11 @@ export default function AgentPage() {
                 </button>
               ))}
             </div>
+            {betProfile === "unspecified" && (
+              <Link href="/profileTest" className="btn btn-ghost mt-4">
+                Hacé que tus combinadas se adapten a tu estilo de juego →
+              </Link>
+            )}
           </div>
         )}
 

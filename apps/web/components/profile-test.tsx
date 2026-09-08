@@ -26,8 +26,9 @@ const OPTION_KEYS: OptionId[] = ["a", "b", "c", "d"];
  * Test de perfil de apostador: intro → 10 preguntas → selector de club → resultado.
  *
  * Todo el estado es local (no hace falta store global); lo único que sale del
- * componente es el `resultId` que se persiste en `users.bet_profile` al llegar
- * al resultado. El club y el puntaje todavía no tienen dónde guardarse.
+ * componente son el `resultId` y el club, que se persisten en `users.bet_profile`
+ * y `users.team` al llegar al resultado. El puntaje y las respuestas todavía no
+ * tienen dónde guardarse.
  */
 export function ProfileTest({ initialBetProfile }: { initialBetProfile?: string }) {
   const [stage, setStage] = useState<Stage>("intro");
@@ -36,22 +37,19 @@ export function ProfileTest({ initialBetProfile }: { initialBetProfile?: string 
   const [team, setTeam] = useState<string | null>(null);
   const [teamQuery, setTeamQuery] = useState("");
   const [saveError, setSaveError] = useState(false);
+  const [saving, setSaving] = useState(false);
+  // Lo último que se intentó guardar, para que "Reintentar" y la tarjeta de
+  // resultado no dependan del estado actual (que "Prefiero no decirlo" ya limpió).
+  const [submittedTeam, setSubmittedTeam] = useState<string | null>(null);
 
   const scoring = useMemo(() => scoreAnswers(answers), [answers]);
   const question = QUESTIONS[idx];
   const answer = answers[question.id];
   const isLast = idx >= QUESTIONS.length - 1;
 
-  /**
-   * Único camino hacia el resultado: tanto "Ver mi perfil" como "Prefiero no
-   * decirlo" pasan por acá, así el perfil y el club se persisten exactamente una
-   * vez por intento. Un fallo de red no bloquea la pantalla — se avisa y listo.
-   *
-   * El club llega por parámetro y no del estado: "Prefiero no decirlo" lo limpia
-   * justo antes de llamar acá, y `team` todavía tendría el valor viejo.
-   */
-  const finish = (teamId: string | null) => {
-    setStage("result");
+  const save = (teamId: string | null) => {
+    setSubmittedTeam(teamId);
+    setSaving(true);
     setSaveError(false);
     fetch("/api/profile-test", {
       method: "POST",
@@ -61,7 +59,22 @@ export function ProfileTest({ initialBetProfile }: { initialBetProfile?: string 
       .then((res) => {
         if (!res.ok) setSaveError(true);
       })
-      .catch(() => setSaveError(true));
+      .catch(() => setSaveError(true))
+      .finally(() => setSaving(false));
+  };
+
+  /**
+   * Único camino hacia el resultado: tanto "Ver mi perfil" como "Prefiero no
+   * decirlo" pasan por acá, así el perfil y el club se persisten exactamente una
+   * vez por intento. Un fallo de red no bloquea la pantalla — se avisa, y el
+   * usuario puede reintentar sin rehacer las 10 preguntas.
+   *
+   * El club llega por parámetro y no del estado: "Prefiero no decirlo" lo limpia
+   * justo antes de llamar acá, y `team` todavía tendría el valor viejo.
+   */
+  const finish = (teamId: string | null) => {
+    setStage("result");
+    save(teamId);
   };
 
   const pick = (optionId: OptionId) => {
@@ -87,6 +100,8 @@ export function ProfileTest({ initialBetProfile }: { initialBetProfile?: string 
     setTeamQuery("");
     setIdx(0);
     setStage("intro");
+    setSubmittedTeam(null);
+    setSaveError(false);
   };
 
   return (
@@ -121,8 +136,10 @@ export function ProfileTest({ initialBetProfile }: { initialBetProfile?: string 
       {stage === "result" && (
         <ResultStage
           scoring={scoring}
-          team={TEAMS.find((t) => t.id === team) ?? null}
+          team={TEAMS.find((t) => t.id === submittedTeam) ?? null}
           saveError={saveError}
+          saving={saving}
+          onRetry={() => save(submittedTeam)}
           onRestart={restart}
         />
       )}
@@ -532,11 +549,15 @@ function ResultStage({
   scoring,
   team,
   saveError,
+  saving,
+  onRetry,
   onRestart,
 }: {
   scoring: ReturnType<typeof scoreAnswers>;
   team: Team | null;
   saveError: boolean;
+  saving: boolean;
+  onRetry: () => void;
   onRestart: () => void;
 }) {
   const { result, score, breakdown } = scoring;
@@ -635,10 +656,20 @@ function ResultStage({
       </div>
 
       {saveError && (
-        <p className="mt-6 text-sm" style={{ color: "var(--color-danger)" }}>
-          No pudimos guardar tu perfil. El resultado de arriba es válido, pero el agente todavía no
-          lo va a tener en cuenta — probá rehacer el test más tarde.
-        </p>
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+            No pudimos guardar tu perfil. El resultado de arriba es válido, pero el agente todavía
+            no lo va a tener en cuenta.
+          </p>
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={saving}
+            className="btn btn-ghost !py-2 !text-sm disabled:opacity-60"
+          >
+            {saving ? "Guardando…" : "Reintentar"}
+          </button>
+        </div>
       )}
 
       <div className="mt-8 flex flex-wrap items-center gap-3">
