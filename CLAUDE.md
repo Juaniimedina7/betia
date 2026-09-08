@@ -453,6 +453,24 @@ unrelated, still-open item.
 
 ## Next steps / open items
 
+**Resolved incident (2026-09-08): all 3 ingest crons were silently broken for ~10 days.**
+`poll-odds.yml`, `cleanup-odds.yml`, and `settle-bets.yml` had all been returning 401
+Unauthorized on every run since 2026-08-28 — the `CRON_SECRET` stored in Vercel had
+drifted from the `CRON_SECRET` GitHub secret at some point, and `sync-env.mjs`
+deliberately never overwrites a key Vercel already has (see item 1 below), so nothing
+ever re-synced it. Practical effect: `odds_cache` wasn't refreshing, expired fixtures
+weren't being cleaned up, and no `bet_slip_legs` were being auto-settled for over a
+week, with no visible error anywhere in the app itself (only in each workflow's own
+Actions run log, which nobody was watching). Fixed by rotating `CRON_SECRET` to a new
+value and force-syncing it into Vercel (production/preview/development) via a one-off
+`workflow_dispatch` job (removed after use, see git history around 2026-09-08 if you
+need the pattern again) — confirmed live afterward by hitting all 4 `/api/ingest/*`
+routes directly with the new secret and getting 200s. **Lesson: these crons have no
+alerting** — a future silent break like this one would only surface again by manually
+checking each workflow's run history (`gh run list --workflow=<name>.yml`), which is
+exactly how this one was found (while verifying the API-Football integration below).
+Worth adding real alerting (e.g. a Slack/email ping on workflow failure) at some point.
+
 1. **The Vercel project actually serving production is NOT the one linked locally.**
    Production (`https://betia-web-brown.vercel.app`) deploys via
    `.github/workflows/deploy.yml` on every push to `main`, using project id
