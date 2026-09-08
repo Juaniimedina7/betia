@@ -26,11 +26,13 @@ export function UserDashboard({
   initialUsage,
   events,
   eventsError,
+  betProfile,
 }: {
   firstName: string | null;
   initialUsage: DashboardUsage | null;
   events: FeaturedEvent[];
   eventsError: string | null;
+  betProfile?: string;
 }) {
   const [usage, setUsage] = useState<DashboardUsage | null>(initialUsage);
 
@@ -130,6 +132,7 @@ export function UserDashboard({
             outOfRuns={outOfRuns}
             error={error}
             onSend={send}
+            betProfile={betProfile}
           />
         </div>
       </div>

@@ -34,13 +34,10 @@ name: Poll odds once a day
 # pedido, no por bookmaker. Desde 2026-09-08 esta lista solo aplica a
 # NBA/NFL/tenis (ver arriba).
 #
-# Corre 1 vez/dia a las 17:00 hora Argentina (UTC-3) = 20:00 UTC — elegido
-# 2026-09-03 en vez del horario anterior (09:00 UTC / 06:00 ART) para que la
-# actualizacion caiga mas cerca de la ventana en la que la audiencia principal
-# (Argentina) usa la plataforma.
+# Corre cada 60 minutos (actualizado a pedido, ideal para plan basico de 20K)
 on:
   schedule:
-    - cron: "0 20 * * *"
+    - cron: "0 * * * *"
   workflow_dispatch: # permite dispararlo a mano desde la pestania Actions
 
 jobs:
@@ -58,19 +55,6 @@ jobs:
             exit 1
           fi
 
-      # Independent step/route on purpose — a failure here must never mask a
-      # successful odds poll above (or vice versa). See CLAUDE.md's "Highlightly
-      # quota" section for the request budget this route stays under.
-      - name: Poll team stats (Highlightly)
-        run: |
-          code=$(curl -s -o /tmp/response-stats.json -w "%{http_code}" \
-            "https://betia-web-brown.vercel.app/api/ingest/poll-stats" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
-          echo "HTTP $code"
-          cat /tmp/response-stats.json
-          if [ "$code" != "200" ]; then
-            exit 1
-          fi
 
       # Since 2026-09-08 this is the SOLE source of soccer odds (see CLAUDE.md's
       # "eliminar The Odds API de futbol" section) — the main odds poll above no

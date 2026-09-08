@@ -199,6 +199,21 @@
     border-color: rgba(255, 255, 255, 0.22);
   }
 
+  /* Secondary CTA in the accent colour: se nota mucho más que .btn-ghost sin
+     competir de igual a igual con el lima sólido de .btn-primary, que en estas
+     pantallas ya está tomado por la acción principal. Mismos tokens que .chip-edge. */
+  .btn-edge {
+    background: rgba(184, 255, 53, 0.1);
+    color: var(--color-edge);
+    border: 1px solid rgba(184, 255, 53, 0.4);
+  }
+  .btn-edge:hover {
+    background: rgba(184, 255, 53, 0.16);
+    border-color: rgba(184, 255, 53, 0.65);
+    box-shadow: 0 10px 30px -12px rgba(184, 255, 53, 0.5);
+    transform: translateY(-2px);
+  }
+
   /* Live pulse dot */
   .live-dot {
     position: relative;
@@ -208,6 +223,62 @@
     background: var(--color-live);
     box-shadow: 0 0 0 0 rgba(61, 216, 255, 0.6);
     animation: live-pulse 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  /* Test de perfil (/profileTest): opción de una pregunta */
+  .profile-test-option {
+    padding: 16px 18px;
+    border-radius: 16px;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--color-ink-muted);
+    cursor: pointer;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s, background 0.25s,
+      color 0.25s;
+  }
+  .profile-test-option:hover {
+    transform: translateX(3px);
+    border-color: rgba(184, 255, 53, 0.4);
+  }
+  .profile-test-option[data-selected] {
+    border-color: rgba(184, 255, 53, 0.45);
+    background: rgba(184, 255, 53, 0.07);
+    color: var(--color-ink);
+  }
+
+  .profile-test-option-key {
+    border-radius: 8px;
+    border: 1px solid var(--line-strong);
+    font-family: var(--font-mono);
+    color: var(--color-ink-muted);
+    transition: background 0.25s, color 0.25s, border-color 0.25s;
+  }
+  .profile-test-option[data-selected] .profile-test-option-key {
+    background: var(--color-edge);
+    border-color: transparent;
+    color: #0a1200;
+  }
+
+  /* Rueda de clubes: desvanecido arriba/abajo + snap suave */
+  .profile-test-wheel {
+    scroll-snap-type: y proximity;
+    mask-image: linear-gradient(180deg, transparent 0, black 22%, black 78%, transparent 100%);
+  }
+
+  .profile-test-club {
+    height: 52px;
+    scroll-snap-align: center;
+    border-left: 2px solid transparent;
+    color: var(--color-ink);
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .profile-test-club:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .profile-test-club[data-selected] {
+    border-left-color: var(--color-edge);
+    background: rgba(184, 255, 53, 0.09);
   }
 
   /* Tabular data numbers */
