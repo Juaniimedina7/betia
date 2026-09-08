@@ -93,9 +93,11 @@ function normalizeBookmakers(
   rawBookmakers: RawOddsBookmaker[],
   homeTeam: string,
   awayTeam: string,
+  allowedBookmakerNames: ReadonlySet<string> | undefined,
 ): ApiFootballBookmakerOdds {
   const bookmakerOdds: ApiFootballBookmakerOdds = {};
   for (const rawBookmaker of rawBookmakers) {
+    if (allowedBookmakerNames && !allowedBookmakerNames.has(rawBookmaker.name.toLowerCase())) continue;
     const markets: Record<string, ApiFootballMarketQuote> = {};
     for (const bet of rawBookmaker.bets) {
       const isMatchWinner = bet.name === "Match Winner";
@@ -233,11 +235,20 @@ export class ApiFootballClient {
    * (the ingest route passes one) so a pathological day (e.g. a Champions League
    * matchday with ~18 simultaneous kickoffs across our watched competitions) can't
    * blow the daily request budget in one run.
+   *
+   * `allowedBookmakerNames` (case-insensitive) restricts which of a fixture's
+   * bookmakers actually get normalized/returned — without it, every bookmaker
+   * API-Football has odds for on that fixture comes through (this API's own
+   * `/odds/bookmakers` catalog has 33). The ingest route passes a curated allowlist
+   * matching the team's bookmaker policy; this is the actual filter (unlike
+   * apps/web/lib/bookmaker-links.ts, which only controls display name/link, not
+   * whether a bookmaker's odds get stored at all).
    */
   async getOddsForLeagues(
     date: string,
     leagueIds: ReadonlySet<number>,
     maxFixtures: number,
+    allowedBookmakerNames?: ReadonlySet<string>,
   ): Promise<ApiFootballFixtureOdds[]> {
     const fixturesRaw = await this.request<RawFixturesResponse>("/fixtures", { date });
     const relevant = fixturesRaw.response.filter((f) => leagueIds.has(f.league.id)).slice(0, maxFixtures);
@@ -249,13 +260,20 @@ export class ApiFootballClient {
       const oddsRaw = await this.request<RawOddsResponse>("/odds", { fixture: entry.fixture.id });
       const oddsEntry = oddsRaw.response[0];
       if (!oddsEntry) continue; // No bookmaker has posted odds yet for this fixture.
+      const bookmakerOdds = normalizeBookmakers(
+        oddsEntry.bookmakers,
+        entry.teams.home.name,
+        entry.teams.away.name,
+        allowedBookmakerNames,
+      );
+      if (Object.keys(bookmakerOdds).length === 0) continue; // None of this fixture's bookmakers are allowed.
       fixtures.push({
         fixtureId: String(entry.fixture.id),
         leagueId: entry.league.id,
         commenceTime: entry.fixture.date,
         homeTeam: entry.teams.home.name,
         awayTeam: entry.teams.away.name,
-        bookmakerOdds: normalizeBookmakers(oddsEntry.bookmakers, entry.teams.home.name, entry.teams.away.name),
+        bookmakerOdds,
       });
     }
     return fixtures;

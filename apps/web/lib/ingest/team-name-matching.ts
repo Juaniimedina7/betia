@@ -20,6 +20,7 @@ const GENERIC_CLUB_TOKENS = new Set([
   "cd",
   "ac",
   "ec",
+  "fk",
   "sad",
   "club",
   "de",

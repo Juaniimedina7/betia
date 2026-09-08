@@ -12,6 +12,14 @@ const MAX_FIXTURES_PER_RUN = 40;
 
 const WATCHED_LEAGUE_IDS = new Set(Object.values(API_FOOTBALL_LEAGUE_IDS));
 
+// Matches the team's Argentina-focused bookmaker policy (2026-09-07, see
+// DEFAULT_BOOKMAKERS in apps/web/app/api/ingest/poll/route.ts) — Bet365 is the actual
+// gap-filler (not on The Odds API at all) and 1xBet has real Argentina presence.
+// API-Football has 33 possible bookmakers per its own /odds/bookmakers catalog; without
+// this allowlist every one of them that has odds for a fixture would come through.
+// Case-insensitive match against API-Football's own bookmaker `name` field.
+const DEFAULT_API_FOOTBALL_BOOKMAKERS = ["bet365", "1xbet"];
+
 // This route must run AFTER /api/ingest/poll in the same cron job: it merges
 // API-Football's odds into rows The Odds API already wrote for the same fixture
 // (matched by team name + kickoff time, see fixture-matching.ts), and only falls back
@@ -27,10 +35,15 @@ export async function GET(req: Request) {
   // Free-plan budget only covers "tomorrow" (1 day ahead) per the confirmed-live cost
   // math in CLAUDE.md — widening this window means redoing that math first.
   const date = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const bookmakers = (process.env.API_FOOTBALL_BOOKMAKERS || "")
+    .split(",")
+    .map((b) => b.trim().toLowerCase())
+    .filter(Boolean);
+  const allowedBookmakers = new Set(bookmakers.length > 0 ? bookmakers : DEFAULT_API_FOOTBALL_BOOKMAKERS);
 
   let watched;
   try {
-    watched = await client.getOddsForLeagues(date, WATCHED_LEAGUE_IDS, MAX_FIXTURES_PER_RUN);
+    watched = await client.getOddsForLeagues(date, WATCHED_LEAGUE_IDS, MAX_FIXTURES_PER_RUN, allowedBookmakers);
   } catch (err) {
     const error =
       err instanceof ApiFootballError

@@ -356,6 +356,30 @@ so far (unmapped keys fall back to their raw slug, not an error).
 entry here — API-Football is soccer-only, so those sport_keys keep getting odds solely
 from The Odds API, unchanged.
 
+**Bookmaker allowlist is enforced in the client, not just the display layer.**
+`apps/web/lib/bookmaker-links.ts`'s `BOOKMAKER_NAMES`/`BOOKMAKER_URLS` only control
+display name/link — they do **not** filter which bookmakers actually get stored.
+Confirmed live 2026-09-08 in the browser: without a real filter, every one of
+API-Football's 33 possible bookmakers with odds for a fixture got merged into
+`odds_cache` (17 bookmakers showing on one match's board), not just the two
+(`bet365`/`1xbet`) the team's Argentina-focused bookmaker policy calls for. Fixed by
+adding `ApiFootballClient.getOddsForLeagues`'s `allowedBookmakerNames` param — the
+route passes `DEFAULT_API_FOOTBALL_BOOKMAKERS = ["bet365", "1xbet"]` (env-overridable
+via `API_FOOTBALL_BOOKMAKERS`, same pattern as `ODDSAPI_BOOKMAKERS`), and a fixture
+whose only bookmakers aren't on that list is skipped entirely rather than stored empty.
+
+**Fixture-matching has a known, accepted gap: cross-provider team-name aliases.**
+Confirmed live 2026-09-08: "VfB Stuttgart vs Viking" (The Odds API) vs "VfB Stuttgart
+vs Viking FK" (API-Football) failed to match and created a visible duplicate fixture on
+the Champions League board — fixed by adding `"fk"` to
+`team-name-matching.ts`'s `GENERIC_CLUB_TOKENS` (same treatment as `"fc"`/`"sc"`/`"afc"`).
+But "Sporting CP" (The Odds API) vs "Sporting Lisbon" (API-Football) is a real alias,
+not an abbreviation-token difference Levenshtein can bridge (confirmed still
+unmatched after the fix) — same real club, different exonym. No alias table was built
+for this; a mismatch like it will keep silently inserting a duplicate row (which then
+self-expires via the hourly cleanup cron once the fixture's kickoff passes, so it's a
+cosmetic/transient issue, not a permanent one) until it's specifically special-cased.
+
 ### Budget
 
 The route only queries **"tomorrow"** (1 day ahead) — `requests/day ≈ 1 (the
