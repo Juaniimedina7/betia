@@ -15,7 +15,11 @@ const REQUEST_INTERVAL_MS = 6_500;
 // mixed with API-Football's own camelCase-ish field names, which is why this
 // normalization layer exists rather than trusting the raw shape everywhere else.
 interface RawOddsValue {
-  value: string;
+  // Confirmed live 2026-09-08: normally a string, but some markets (e.g.
+  // exact_goals_number, home_team_exact_goals_number) return this as a raw JSON
+  // number instead (e.g. `0`, `1`, `2`) — coerced to string in normalizeBookmakers
+  // below so every consumer can always treat outcome names as plain strings.
+  value: string | number;
   odd: string;
 }
 
@@ -104,7 +108,7 @@ function normalizeBookmakers(
       const marketKey = isMatchWinner ? "h2h" : slugifyMarketName(bet.name);
       markets[marketKey] = {
         outcomes: bet.values.map((v) => ({
-          name: isMatchWinner ? normalizeMatchWinnerOutcome(v.value, homeTeam, awayTeam) : v.value,
+          name: isMatchWinner ? normalizeMatchWinnerOutcome(String(v.value), homeTeam, awayTeam) : String(v.value),
           price: Number(v.odd),
         })),
       };

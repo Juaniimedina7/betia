@@ -4,6 +4,8 @@ import {
   buildComboTool,
   estimateMatchProbability,
   estimateMatchProbabilityInput,
+  findPlayerProps,
+  findPlayerPropsInput,
   getBestPrice,
   getBestPriceInput,
   getHeadToHead,
@@ -97,10 +99,20 @@ const handler = createMcpHandler(
       "build_combo",
       {
         description:
-          "Deterministically build a parlay/combo hitting a target multiplier or leg count from cached odds, ranked by real statistical (Poisson) win probability where available and market edge otherwise, never combining two legs from the same fixture. Every leg in the returned combo always comes from a single bookmaker so the user can actually place the real bet there. Without `bookmaker`, every cached bookmaker is tried and the best resulting combo is kept; pass `bookmaker` to force a specific one instead. Without `from`/`to` it considers every cached fixture regardless of kickoff date — pass them (ISO 8601 UTC) to scope to a specific day/window. `riskProfile` controls how risky the selected legs are ('conservative' = high edge AND high real chance of hitting, low-variance; 'balanced' = default, edge-only floor; 'aggressive' = loosest edge floor) — see its own description for exact thresholds and set it whenever the user expresses a risk preference.",
+          "Deterministically build a parlay/combo hitting a target multiplier or leg count from cached odds, ranked by real statistical (Poisson) win probability where available and market edge otherwise, never combining two legs from the same fixture. Every leg in the returned combo always comes from a single bookmaker so the user can actually place the real bet there. Without `bookmaker`, every cached bookmaker is tried and the best resulting combo is kept; pass `bookmaker` to force a specific one instead. Without `from`/`to` it considers every cached fixture regardless of kickoff date — pass them (ISO 8601 UTC) to scope to a specific day/window. `riskProfile` controls how risky the selected legs are ('conservative' = high edge AND high real chance of hitting, low-variance; 'balanced' = default, edge-only floor; 'aggressive' = loosest edge floor) — see its own description for exact thresholds and set it whenever the user expresses a risk preference. Pass `fixtureId` instead of `sports`/`sportKeys` to build a same-match combo (multiple markets from ONE fixture, e.g. hándicap + más/menos + ambos anotan) — in that mode the result always carries a `disclaimer` about same-match correlation that must be relayed to the user verbatim.",
         inputSchema: buildComboInput,
       },
       async (input) => jsonContent(await buildComboTool(input)),
+    );
+
+    server.registerTool(
+      "find_player_props",
+      {
+        description:
+          "Search cached odds across fixtures for a specific player's prop markets (goalscorer, shots, assists, etc.) by fuzzy name match — tolerates case/accent differences since player names come through raw from the odds provider. `sportKeys` is optional (unlike build_combo/get_odds_by_tournament) since a player name is already a strong filter; pass `marketId` to narrow to one specific prop type. Returns the best price per fixture/market/outcome across cached bookmakers.",
+        inputSchema: findPlayerPropsInput,
+      },
+      async (input) => jsonContent(await findPlayerProps(input)),
     );
 
     server.registerTool(

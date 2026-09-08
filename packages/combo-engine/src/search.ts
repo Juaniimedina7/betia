@@ -1,4 +1,5 @@
 import { filterByRiskProfile, rankByConfidence } from "./edge";
+import { marketFamilyOf } from "./market-families";
 import type { BuildComboConstraints, CandidateLeg, ComboResult } from "./types";
 
 const DEFAULT_MIN_LEGS = 2;
@@ -24,24 +25,26 @@ function averageStatisticalProbability(legs: CandidateLeg[]): number | undefined
 }
 
 /**
- * MVP simplification: one candidate leg per fixture (the most-likely-to-hit one, by
- * statistical probability when available, falling back to market edge otherwise). This
- * makes the anti-correlation rule ("never two legs from the same fixture") automatically
- * satisfied by construction, at the cost of not considering alternate markets on the
- * same match.
+ * One candidate leg per conflict key (the most-likely-to-hit one, by statistical
+ * probability when available, falling back to market edge otherwise). `conflictKey`
+ * is `fixtureId` for the normal cross-fixture search (`buildCombo`) — "never two legs
+ * from the same fixture" — or a market-family key for the same-match search
+ * (`buildSameMatchCombo`) — "never two legs answering the same underlying question."
  */
-function bestLegPerFixture(legs: CandidateLeg[]): CandidateLeg[] {
-  const byFixture = new Map<string, CandidateLeg>();
+function bestLegPerConflictKey(legs: CandidateLeg[], conflictKey: (leg: CandidateLeg) => string): CandidateLeg[] {
+  const byKey = new Map<string, CandidateLeg>();
   for (const leg of rankByConfidence(legs)) {
-    if (!byFixture.has(leg.fixtureId)) byFixture.set(leg.fixtureId, leg);
+    const key = conflictKey(leg);
+    if (!byKey.has(key)) byKey.set(key, leg);
   }
-  return [...byFixture.values()];
+  return [...byKey.values()];
 }
 
 function greedyForCount(
   pool: CandidateLeg[],
   legCount: number,
   targetLog: number,
+  conflictKey: (leg: CandidateLeg) => string,
 ): { legs: CandidateLeg[]; log: number } | null {
   if (pool.length < legCount) return null;
 
@@ -61,7 +64,7 @@ function greedyForCount(
       const logWithoutOut = currentLog - Math.log(outLeg.priceDecimal);
 
       for (const candidate of searchPool) {
-        if (selection.some((leg) => leg.fixtureId === candidate.fixtureId)) continue;
+        if (selection.some((leg) => conflictKey(leg) === conflictKey(candidate))) continue;
         const newLog = logWithoutOut + Math.log(candidate.priceDecimal);
         const newDiffAbs = Math.abs(targetLog - newLog);
         if (newDiffAbs < bestDiffAbs) {
@@ -81,19 +84,27 @@ function greedyForCount(
 }
 
 /**
- * Deterministic search for a combo hitting a target multiplier (or leg
- * count) within tolerance, ranked by edge. The LLM never runs this — it only
- * supplies `constraints` from natural language, and narrates this function's
- * output. See packages/mcp-tools/src/tools/build-combo.ts for the tool wrapper.
+ * Deterministic search for a combo hitting a target multiplier (or leg count) within
+ * tolerance, ranked by edge. Shared by `buildCombo` (cross-fixture, one leg per
+ * fixture) and `buildSameMatchCombo` (one fixture, one leg per market family) — the
+ * only difference between the two public entry points is which `conflictKey` they
+ * pass in.
  */
-export function buildCombo(allCandidates: CandidateLeg[], constraints: BuildComboConstraints): ComboResult {
+function runSearch(
+  allCandidates: CandidateLeg[],
+  constraints: BuildComboConstraints,
+  conflictKey: (leg: CandidateLeg) => string,
+): ComboResult {
   const excluded = new Set(constraints.excludeFixtureIds ?? []);
   const riskProfile = constraints.riskProfile ?? "balanced";
   const tolerance = constraints.tolerance ?? DEFAULT_TOLERANCE;
 
   const pool = rankByConfidence(
     filterByRiskProfile(
-      bestLegPerFixture(allCandidates.filter((leg) => !excluded.has(leg.fixtureId))),
+      bestLegPerConflictKey(
+        allCandidates.filter((leg) => !excluded.has(leg.fixtureId)),
+        conflictKey,
+      ),
       riskProfile,
     ),
   );
@@ -122,7 +133,7 @@ export function buildCombo(allCandidates: CandidateLeg[], constraints: BuildComb
   let bestDiffAbs = Infinity;
 
   for (const legCount of legCounts) {
-    const attempt = greedyForCount(pool, legCount, targetLog);
+    const attempt = greedyForCount(pool, legCount, targetLog, conflictKey);
     if (!attempt) continue;
     const diffAbs = Math.abs(targetLog - attempt.log);
     if (diffAbs < bestDiffAbs) {
@@ -157,6 +168,30 @@ export function buildCombo(allCandidates: CandidateLeg[], constraints: BuildComb
       ? undefined
       : `No se encontró un combo dentro de ±${Math.round(tolerance * 100)}% del objetivo ${targetMultiplier}x; el más cercano da ${finalOdds.toFixed(2)}x.`,
   };
+}
+
+/**
+ * Cross-fixture combo search — never two legs from the same fixture. The LLM never
+ * runs this — it only supplies `constraints` from natural language, and narrates this
+ * function's output. See packages/mcp-tools/src/tools/build-combo.ts for the tool
+ * wrapper.
+ */
+export function buildCombo(allCandidates: CandidateLeg[], constraints: BuildComboConstraints): ComboResult {
+  return runSearch(allCandidates, constraints, (leg) => leg.fixtureId);
+}
+
+/**
+ * Same-match combo search: `allCandidates` should already be every market's legs for
+ * ONE fixture (e.g. `extractCandidateLegs([event])`) — never two legs from the same
+ * market family (see market-families.ts), instead of never two legs from the same
+ * fixture. Caller (build-combo.ts's `fixtureId` branch) is responsible for always
+ * surfacing a correlation disclaimer alongside this result: the combined odds here are
+ * a naive product-of-independent-prices, same as buildCombo, but same-match markets
+ * are NOT independent in reality (e.g. Over 2.5 goals and Both Teams Score correlate
+ * positively) — nothing in this engine adjusts for that.
+ */
+export function buildSameMatchCombo(allCandidates: CandidateLeg[], constraints: BuildComboConstraints): ComboResult {
+  return runSearch(allCandidates, constraints, (leg) => marketFamilyOf(leg.marketId));
 }
 
 function deriveTargetFromLegCount(pool: CandidateLeg[], constraints: BuildComboConstraints): number {

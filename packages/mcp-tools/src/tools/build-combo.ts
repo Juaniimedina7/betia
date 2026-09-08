@@ -1,8 +1,15 @@
 import { getDb, oddsCache, sportsCache } from "@bet/db";
 import type { Event } from "@bet/odds-api-client";
-import { buildCombo as runComboSearch, extractCandidateLegs, type CandidateLeg, type ComboResult } from "@bet/combo-engine";
-import { and, gte, inArray, isNotNull, lte } from "drizzle-orm";
+import {
+  buildCombo as runComboSearch,
+  buildSameMatchCombo as runSameMatchComboSearch,
+  extractCandidateLegs,
+  type CandidateLeg,
+  type ComboResult,
+} from "@bet/combo-engine";
+import { and, eq, gte, inArray, isNotNull, lte } from "drizzle-orm";
 import { z } from "zod";
+import { resolveByName } from "../fuzzy-match";
 import { estimateMatchProbabilitiesBatch, fixtureKey, type StatisticalProbabilityResult } from "../statistical-probability";
 
 const MAX_SPORT_KEYS = 20;
@@ -17,6 +24,18 @@ export const buildComboInput = z.object({
   sports: z.array(z.string()).optional(),
   // Sport_key strings directly (e.g. "soccer_epl") — list_tournaments' output.
   sportKeys: z.array(z.string()).optional(),
+  // Scopes the whole search to ONE fixture instead of many — "un combo con eventos de
+  // este partido" (hándicap + más/menos + ambos anotan del mismo match, not one leg
+  // per match). Mutually exclusive in practice with sports/sportKeys/from/to (ignored
+  // when fixtureId is set, since there's only one fixture to consider). In this mode
+  // the normal "never two legs from the same fixture" rule doesn't apply (every leg
+  // IS from the same fixture, by design) — instead at most one leg per market family
+  // is allowed (see MARKET_FAMILY in packages/combo-engine), and the result always
+  // carries a `disclaimer`: same-match legs are correlated in reality (e.g. Over 2.5
+  // goals and Both Teams Score tend to happen together) and this engine's combined
+  // odds is a naive product-of-independent-prices that does NOT account for that —
+  // always relay the disclaimer to the user, don't drop it.
+  fixtureId: z.string().optional(),
   // ISO 8601 kickoff-time window (UTC). Without these, every cached fixture for the
   // resolved sport_keys is a candidate regardless of when it kicks off — a fixture 2
   // weeks out is just as eligible as one tonight. Pass both to scope to "hoy"/"esta
@@ -104,6 +123,9 @@ function emptyResult(warning: string): ComboResult {
   return { legs: [], combinedOddsDecimal: 0, legCount: 0, averageEdgePct: 0, toleranceMet: false, warning };
 }
 
+const SAME_MATCH_DISCLAIMER =
+  "Estas cuotas combinan varios mercados del mismo partido, que en la realidad están correlacionados (ej. \"Más de 2.5 goles\" y \"Ambos anotan\" tienden a darse juntos) — el multiplicador mostrado multiplica las cuotas como si fueran independientes, así que es una estimación optimista, no el precio real de una \"combinada del mismo partido\" que ofrecería una casa de apuestas.";
+
 function relativeDiffToTarget(result: ComboResult, targetMultiplier?: number): number {
   if (!targetMultiplier || result.combinedOddsDecimal <= 0) return 0;
   return Math.abs(result.combinedOddsDecimal - targetMultiplier) / targetMultiplier;
@@ -167,6 +189,11 @@ async function resolveSportKeys(input: BuildComboInput): Promise<string[]> {
  * probability, then highest market edge.
  */
 export async function buildComboTool(input: BuildComboInput): Promise<ComboResult> {
+  if (input.fixtureId) {
+    const result = await buildSameMatchComboTool(input, input.fixtureId);
+    return { ...result, disclaimer: SAME_MATCH_DISCLAIMER };
+  }
+
   const sportKeys = await resolveSportKeys(input);
   if (sportKeys.length === 0) {
     return emptyResult("No se encontraron torneos para los filtros dados.");
@@ -194,15 +221,8 @@ export async function buildComboTool(input: BuildComboInput): Promise<ComboResul
   const statisticalProbabilities = await fetchStatisticalProbabilities(events);
 
   if (input.bookmaker) {
-    const rawBookmaker = input.bookmaker.toLowerCase();
     const cachedBookmakers = [...new Set(events.flatMap((e) => Object.keys(e.bookmakerOdds)))];
-    
-    let resolvedBookmaker = cachedBookmakers.find((b) => b.toLowerCase() === rawBookmaker);
-    if (!resolvedBookmaker) {
-      resolvedBookmaker = cachedBookmakers.find(
-        (b) => b.toLowerCase().includes(rawBookmaker) || rawBookmaker.includes(b.toLowerCase())
-      );
-    }
+    const resolvedBookmaker = resolveByName(input.bookmaker, cachedBookmakers);
 
     if (!resolvedBookmaker) {
       return emptyResult(
@@ -246,6 +266,73 @@ export async function buildComboTool(input: BuildComboInput): Promise<ComboResul
   return best;
 }
 
+/**
+ * The `fixtureId` branch: same shape as buildComboTool's normal cross-fixture path
+ * (same-bookmaker-for-the-whole-combo rule, same "try every bookmaker, keep the best"
+ * fallback when none is given) but scoped to one event and searched with
+ * `buildSameMatchCombo` (at most one leg per market family, not per fixture — every
+ * leg here already shares the same fixtureId). The disclaimer is attached by the
+ * caller (buildComboTool), not here, so it's attached exactly once regardless of which
+ * return path below is taken.
+ */
+async function buildSameMatchComboTool(input: BuildComboInput, fixtureId: string): Promise<ComboResult> {
+  const event = await readCachedEvent(fixtureId);
+  if (!event) {
+    return emptyResult(`No hay cuotas cacheadas para el partido "${fixtureId}".`);
+  }
+
+  const constraints = {
+    targetMultiplier: input.targetMultiplier,
+    targetLegCount: input.targetLegCount,
+    minLegs: input.minLegs,
+    maxLegs: input.maxLegs,
+    riskProfile: input.riskProfile,
+    tolerance: input.tolerance,
+  };
+
+  const statisticalProbabilities = await fetchStatisticalProbabilities([event]);
+  const cachedBookmakers = Object.keys(event.bookmakerOdds);
+  if (cachedBookmakers.length === 0) {
+    return emptyResult(`No hay casas de apuestas cacheadas para el partido "${fixtureId}".`);
+  }
+
+  if (input.bookmaker) {
+    const resolvedBookmaker = resolveByName(input.bookmaker, cachedBookmakers);
+    if (!resolvedBookmaker) {
+      return emptyResult(
+        `No tenemos cuotas cacheadas de "${input.bookmaker}" para este partido — las casas disponibles son: ${cachedBookmakers.join(", ")}.`,
+      );
+    }
+    const candidates = applyStatisticalProbabilities(
+      extractCandidateLegs([event], { bookmaker: resolvedBookmaker }),
+      statisticalProbabilities,
+    );
+    if (candidates.length === 0) {
+      return emptyResult(`No hay cuotas de "${resolvedBookmaker}" para ningún mercado de este partido.`);
+    }
+    return runSameMatchComboSearch(candidates, constraints);
+  }
+
+  let best: ComboResult | null = null;
+  for (const bookmaker of cachedBookmakers) {
+    const candidates = applyStatisticalProbabilities(
+      extractCandidateLegs([event], { bookmaker }),
+      statisticalProbabilities,
+    );
+    if (candidates.length === 0) continue;
+    const result = runSameMatchComboSearch(candidates, constraints);
+    if (result.legs.length === 0) continue;
+    if (!best || compareComboResults(result, best, input.targetMultiplier) < 0) best = result;
+  }
+
+  if (!best) {
+    return emptyResult(
+      `Ninguna casa cacheada (${cachedBookmakers.join(", ")}) tiene suficientes mercados distintos para armar un combo de este partido.`,
+    );
+  }
+  return best;
+}
+
 /** Best-effort read of odds_cache (written by /api/ingest/poll) — never throws. */
 async function readCachedEvents(sportKeys: string[], from?: string, to?: string): Promise<Event[]> {
   try {
@@ -268,5 +355,25 @@ async function readCachedEvents(sportKeys: string[], from?: string, to?: string)
     }));
   } catch {
     return [];
+  }
+}
+
+/** Single-fixture counterpart to readCachedEvents, for the fixtureId branch. */
+async function readCachedEvent(fixtureId: string): Promise<Event | null> {
+  try {
+    const db = getDb();
+    const [row] = await db.select().from(oddsCache).where(eq(oddsCache.eventId, fixtureId)).limit(1);
+    if (!row?.bookmakerOdds) return null;
+    return {
+      eventId: row.eventId,
+      sportKey: row.sportKey,
+      sportTitle: row.sportTitle ?? undefined,
+      commenceTime: (row.commenceTime ?? row.updatedAt).toISOString(),
+      homeTeam: row.homeTeam ?? "",
+      awayTeam: row.awayTeam ?? "",
+      bookmakerOdds: row.bookmakerOdds as Event["bookmakerOdds"],
+    };
+  } catch {
+    return null;
   }
 }

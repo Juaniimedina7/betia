@@ -419,6 +419,66 @@ there was no reason to start there.
   how) — unlike `ANTHROPIC_API_KEY`/`HIGHLIGHTLY_API_KEY`/`ODDSAPI_API_KEY`, which are
   still only local.
 
+### `RawOddsValue.value` isn't always a string (found 2026-09-08)
+
+Confirmed live: for some markets — `exact_goals_number`,
+`home_team_exact_goals_number`, `away_team_exact_goals_number` at least — API-Football
+returns the outcome `value` as a raw JSON number (`0`, `1`, `2`, ...) instead of a
+string like every other market. `packages/api-football-client`'s `normalizeBookmakers`
+now does `String(v.value)` unconditionally rather than trusting the declared (and
+apparently not always honored) `value: string` shape. If you're debugging an outcome
+name that looks numeric or a `.toLowerCase is not a function` crash somewhere reading
+`bookmakerOdds`, this is why — `packages/mcp-tools/src/fuzzy-match.ts`'s
+`resolveByName` also filters non-string candidates defensively as a second layer,
+since `odds_cache.bookmaker_odds` is untyped jsonb and nothing enforces this at read
+time.
+
+### MCP tools: date filter everywhere, player-name search, same-match combos (2026-09-08)
+
+Three additions on top of the API-Football integration, once "todo tipo de odds" data
+was actually flowing:
+
+- **`get_odds_by_tournament` gained `from`/`to`** (same `gte`/`lte`-on-`commenceTime`
+  pattern as `list_fixtures`/`build_combo`) — it was the one list-style odds tool with
+  no date filter at all.
+- **`find_player_props`** (new tool): fuzzy-name search for player-prop markets
+  (`anytime_goal_scorer`, `home_player_shots`, `player_assists`, `player_singles`,
+  ...) across cached fixtures. `sportKeys` is optional here (unlike `build_combo`,
+  which requires `sports`/`sportKeys`) — a player name is already a strong filter, and
+  player props only ever come from API-Football (soccer-only), so there's no
+  "sweeps the whole catalog" risk. No jsonb query pushdown exists (no GIN index on
+  `bookmaker_odds`, confirmed nothing in this codebase uses one) — it pulls candidate
+  rows by `sportKey`/date same as every other tool, then scans outcomes in JS.
+- **Same-match combos**: `build_combo` takes an optional `fixtureId` — when set, it
+  builds a combo from multiple *markets of one fixture* (hándicap + más/menos + ambos
+  anotan, etc.) instead of one leg per fixture across many. `packages/combo-engine`'s
+  `bestLegPerFixture`/`greedyForCount` (in `search.ts`) both hardcoded `fixtureId` as
+  the "never pick two of these" key — generalized to a `conflictKey` function instead,
+  so the existing `buildCombo` (cross-fixture, key = `fixtureId`, zero behavior change)
+  and the new `buildSameMatchCombo` (one fixture, key = market family) share the same
+  search machinery. `packages/combo-engine/src/market-families.ts` is a small, explicit
+  table of markets that answer the same underlying question (full-match result,
+  hándicap, total goals, both-teams-score, odd/even) — at most one leg per family. A
+  market outside the table falls back to using its own key as the family, which is
+  already the safe minimum (never two outcomes of the literal same market).
+  `packages/combo-engine/src/correlation.ts` (`collidesWithSelection`/
+  `dedupeByFixture`) was **dead code with zero call sites** — looked like an earlier,
+  abandoned attempt at this same problem — deleted rather than left alongside the new
+  mechanism.
+  **Same-match legs are correlated in reality and this engine only ever does a naive
+  product-of-independent-prices** — there's no joint-probability model in this codebase
+  (the Poisson stats engine only estimates match-level win/draw/loss, not cross-market
+  correlation) to price a real "same game parlay" discount. `ComboResult` gained an
+  optional `disclaimer` field specifically for this — `build-combo.ts`'s `fixtureId`
+  path always sets it, and `parlay-agent.ts` is instructed to always relay it verbatim,
+  same pattern as the existing `warning` field.
+- `get_best_price`'s `outcomeName` and `build_combo`'s `bookmaker` matching both now go
+  through a shared `packages/mcp-tools/src/fuzzy-match.ts` (`resolveByName`: exact
+  case-insensitive, then substring either way) — previously the bookmaker-matching
+  logic was inline only in `build-combo.ts`, and `get_best_price` required an exact
+  `outcomeName` match, unworkable for player names that come through raw from
+  API-Football.
+
 ## Highlightly quota (2026-08-31)
 
 Second external data source, added for statistical (Poisson-model) win/draw/loss

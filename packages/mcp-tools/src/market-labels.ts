@@ -16,6 +16,14 @@ const MARKET_LABELS: Record<string, string> = {
   both_teams_score: "Ambos anotan",
   double_chance: "Doble oportunidad",
   odd_even: "Par/impar",
+  // Player-prop markets (added 2026-09-08 alongside find_player_props) — outcome
+  // names for these are player names, passed through raw/unnormalized from
+  // API-Football (see packages/api-football-client's normalizeBookmakers).
+  anytime_goal_scorer: "Goleador",
+  home_player_shots: "Tiros del jugador (local)",
+  away_player_shots: "Tiros del jugador (visita)",
+  player_assists: "Asistencias",
+  team_to_score_first: "Primero en anotar",
 };
 // "exact_score" ("Resultado exacto") is deliberately NOT curated here — confirmed live
 // 2026-09-08 it can carry 100+ scoreline outcomes for one fixture (every combination

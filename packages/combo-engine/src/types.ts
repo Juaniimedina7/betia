@@ -55,4 +55,9 @@ export interface ComboResult {
   averageStatisticalProbability?: number;
   toleranceMet: boolean;
   warning?: string;
+  /** Set by build-combo.ts's fixtureId (same-match) path, always — see
+   * buildSameMatchCombo's doc comment in search.ts for why this is never omitted
+   * there: same-match legs are correlated in reality and this engine's combined-odds
+   * math doesn't account for that. Absent for the normal cross-fixture combo path. */
+  disclaimer?: string;
 }
