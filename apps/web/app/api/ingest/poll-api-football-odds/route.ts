@@ -25,13 +25,17 @@ const WATCHED_LEAGUE_IDS = new Set(Object.values(API_FOOTBALL_LEAGUE_IDS));
 // this allowlist every one of them that has odds for a fixture would come through.
 // Case-insensitive match against API-Football's own bookmaker `name` field.
 //
-// NOTE (2026-09-08): since soccer moved entirely to API-Football, these 2 bookmakers
+// NOTE (2026-09-08): since soccer moved entirely to API-Football, these bookmakers
 // are now soccer's ENTIRE bookmaker set, not a complement to The Odds API's 7
 // (pinnacle/unibet/betano_uk/codere_it/betsson/betway/espnbet) the way they used to
-// be — soccer's price-comparison coverage genuinely shrank as a side effect of this
-// migration. Widening this list is a separate, deliberate product decision — not done
-// here — see CLAUDE.md.
-const DEFAULT_API_FOOTBALL_BOOKMAKERS = ["bet365", "1xbet"];
+// be — soccer's price-comparison coverage genuinely shrank as a side effect of that
+// migration. Betano and Betsson were added back on 2026-09-08 — API-Football mints
+// them as af:betano/af:betsson (see bookmakerKeyFor in packages/api-football-client),
+// distinct from The Odds API's unprefixed betano_uk/betsson keys, so
+// apps/web/lib/bookmaker-links.ts needed new entries for the af: forms too. Coverage
+// per fixture isn't guaranteed for either (see CLAUDE.md's "coverage isn't uniform"
+// caveat), so a fixture with neither posted is unaffected.
+const DEFAULT_API_FOOTBALL_BOOKMAKERS = ["bet365", "1xbet", "betano", "betsson"];
 
 // Since 2026-09-08 this is the ONLY source of soccer odds — The Odds API no longer
 // polls any soccer sport_key at all (see watched-sport-keys.ts and CLAUDE.md's

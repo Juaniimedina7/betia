@@ -7,11 +7,14 @@
  *
  * Keep in sync with DEFAULT_BOOKMAKERS in apps/web/app/api/ingest/poll/route.ts for
  * the `pinnacle`.."betway" keys — narrowed to Argentina-facing books only (2026-09-07).
- * The `af:` entries are API-Football additions, kept to just `bet365`/`1xbet` (2026-09-07)
- * after that same Argentina-only decision — Bet365 is the actual gap-filler (not
- * available on The Odds API at all, confirmed 2026-09-02) and 1xBet has real Argentina
- * presence; API-Football's other global books (William Hill, Betfair, Marathonbet)
- * were deliberately left out to match the team's Argentina-only direction.
+ * The `af:` entries are API-Football additions — originally kept to just
+ * `bet365`/`1xbet` (2026-09-07): Bet365 is the actual gap-filler (not available on The
+ * Odds API at all, confirmed 2026-09-02) and 1xBet has real Argentina presence;
+ * API-Football's other global books (William Hill, Betfair, Marathonbet) were
+ * deliberately left out to match the team's Argentina-only direction. `af:betano`/
+ * `af:betsson` were added 2026-09-08 alongside DEFAULT_API_FOOTBALL_BOOKMAKERS in
+ * poll-api-football-odds/route.ts — distinct keys from the unprefixed `betano_uk`/
+ * `betsson` above (those are The Odds API's keys, no longer polled for soccer at all).
  */
 export const BOOKMAKER_URLS: Record<string, string> = {
   pinnacle: "https://www.pinnacle.com/es/",
@@ -21,6 +24,8 @@ export const BOOKMAKER_URLS: Record<string, string> = {
   betway: "https://betway.com",
   "af:bet365": "https://www.bet365.com",
   "af:1xbet": "https://1xbet.com",
+  "af:betano": "https://www.betano.bet.ar",
+  "af:betsson": "https://www.betsson.bet.ar",
 };
 
 /** Display-friendly name for a bookmaker key. */
@@ -32,6 +37,8 @@ export const BOOKMAKER_NAMES: Record<string, string> = {
   betway: "Betway",
   "af:bet365": "Bet365",
   "af:1xbet": "1xBet",
+  "af:betano": "Betano",
+  "af:betsson": "Betsson",
 };
 
 /**
