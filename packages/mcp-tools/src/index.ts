@@ -2,6 +2,11 @@ export * from "./context";
 export * from "./league-map";
 export * from "./team-resolution";
 export * from "./fuzzy-match";
+// market-labels.ts is NOT re-exported here on purpose — it's the one module in this
+// package with zero server-only dependencies (no @bet/db, no drizzle), so it also has
+// its own package.json subpath export (see "./market-labels" below) for client
+// components (e.g. live-odds-table.tsx) to import without pulling in every DB-backed
+// tool this barrel re-exports, which breaks client bundling (pg needs dns/fs/net/tls).
 
 export * from "./tools/list-sports";
 export * from "./tools/list-tournaments";

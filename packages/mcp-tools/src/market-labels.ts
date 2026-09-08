@@ -45,6 +45,10 @@ export function outcomeLabel(outcomeName: string, point: number | undefined): st
   if (outcomeName === "Over") return point !== undefined ? `Más de ${point}` : "Más de";
   if (outcomeName === "Under") return point !== undefined ? `Menos de ${point}` : "Menos de";
   if (outcomeName === "Draw") return "Empate";
+  // API-Football's boolean markets (both_teams_score, win_to_nil, clean_sheet, etc.)
+  // all use this same generic Yes/No pair for their two outcomes.
+  if (outcomeName === "Yes") return "Sí";
+  if (outcomeName === "No") return "No";
   if (point === undefined) return outcomeName;
   return `${outcomeName} (${point > 0 ? "+" : ""}${point})`;
 }

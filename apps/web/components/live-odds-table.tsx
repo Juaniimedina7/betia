@@ -2,9 +2,241 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { BookmakerOdds } from "@bet/odds-api-client";
+import { marketLabel as curatedMarketLabel, outcomeLabel as curatedOutcomeLabel } from "@bet/mcp-tools/market-labels";
 
 // Each supported sport's main "who wins" market always floats to the top of the board.
 const PRIORITY_MARKET_IDS = ["h2h", "spreads", "totals"];
+
+// This page shows every market API-Football returns (unlike the agent chat's
+// toCuratedOddsOutput, which deliberately drops anything without a real curated label
+// to keep the tool response small — see packages/mcp-tools/src/market-labels.ts).
+// exact_score is intentionally kept OUT of that shared curated map for that reason, but
+// this full-page table still deserves a real Spanish label for it, so it's added here
+// instead of in the shared file (adding it there would make the chat curate it in too).
+const PAGE_ONLY_MARKET_LABELS: Record<string, string> = {
+  exact_score: "Resultado exacto",
+
+  // Time-window 1X2 / goal-line
+  "1x2_15_minutes": "1X2 a los 15 minutos",
+  "1x2_30_minutes": "1X2 a los 30 minutos",
+  "1x2_60_minutes": "1X2 a los 60 minutos",
+  "1x2_75_minutes": "1X2 a los 75 minutos",
+  goal_line: "Línea de goles",
+  goal_line_1st_half: "Línea de goles 1er tiempo",
+
+  // Handicap variants
+  asian_handicap_2nd_half: "Hándicap asiático 2do tiempo",
+  asian_handicap_first_half: "Hándicap asiático 1er tiempo",
+  european_handicap_2nd_half: "Hándicap europeo 2do tiempo",
+  handicap_result: "Resultado con hándicap",
+  handicap_result_first_half: "Resultado con hándicap 1er tiempo",
+
+  // Away-team-specific
+  away_anytime_goal_scorer: "Goleador visitante (en cualquier momento)",
+  away_come_from_behind_and_win: "Visitante remonta y gana",
+  away_corners_over_under: "Más/menos córners del visitante",
+  away_first_goal_scorer: "Primer goleador visitante",
+  away_goal_method_header: "Visitante anota de cabeza",
+  away_highest_scoring_half: "Tiempo con más goles del visitante",
+  away_last_goal_scorer: "Último goleador visitante",
+  away_odd_even: "Goles del visitante par/impar",
+  away_player_shots_on_target_total: "Tiros al arco de jugador visitante",
+  away_player_shots_total: "Tiros de jugador visitante",
+  away_team_exact_goals_number: "Cantidad exacta de goles del visitante",
+  away_team_score_a_goal: "El visitante anota un gol",
+  away_team_score_a_goal_1st_half: "El visitante anota un gol (1er tiempo)",
+  away_team_score_a_goal_2nd_half: "El visitante anota un gol (2do tiempo)",
+  away_team_total_cards: "Total de tarjetas del visitante",
+  away_team_total_goals_1st_half: "Total de goles del visitante (1er tiempo)",
+  away_team_total_goals_2nd_half: "Total de goles del visitante (2do tiempo)",
+  away_team_will_score_in_both_halves: "El visitante anota en ambos tiempos",
+  away_team_yellow_cards: "Tarjetas amarillas del visitante",
+  away_total_corners_1st_half: "Total de córners del visitante (1er tiempo)",
+  away_total_corners_2nd_half: "Total de córners del visitante (2do tiempo)",
+  away_win_both_halves: "El visitante gana ambos tiempos",
+
+  // Home-team-specific (mirrors away)
+  home_anytime_goal_scorer: "Goleador local (en cualquier momento)",
+  home_away: "Local/visitante",
+  home_come_from_behind_and_win: "Local remonta y gana",
+  home_corners_over_under: "Más/menos córners del local",
+  home_first_goal_scorer: "Primer goleador local",
+  home_goal_method_header: "Local anota de cabeza",
+  home_highest_scoring_half: "Tiempo con más goles del local",
+  home_last_goal_scorer: "Último goleador local",
+  home_odd_even: "Goles del local par/impar",
+  home_player_shots_on_target_total: "Tiros al arco de jugador local",
+  home_team_exact_goals_number: "Cantidad exacta de goles del local",
+  home_team_score_a_goal: "El local anota un gol",
+  home_team_score_a_goal_1st_half: "El local anota un gol (1er tiempo)",
+  home_team_score_a_goal_2nd_half: "El local anota un gol (2do tiempo)",
+  home_team_total_cards: "Total de tarjetas del local",
+  home_team_total_goals_1st_half: "Total de goles del local (1er tiempo)",
+  home_team_total_goals_2nd_half: "Total de goles del local (2do tiempo)",
+  home_team_will_score_in_both_halves: "El local anota en ambos tiempos",
+  home_team_yellow_cards: "Tarjetas amarillas del local",
+  home_total_corners_1st_half: "Total de córners del local (1er tiempo)",
+  home_total_corners_2nd_half: "Total de córners del local (2do tiempo)",
+  home_win_both_halves: "El local gana ambos tiempos",
+
+  // Both-teams-to-score variants
+  both_teams_score_first_half: "Ambos anotan (1er tiempo)",
+  both_teams_to_score_in_both_halves: "Ambos anotan en los dos tiempos",
+  both_teams_to_score_second_half: "Ambos anotan (2do tiempo)",
+  results_both_teams_score: "Resultado y ambos anotan",
+  total_goals_both_teams_to_score: "Total de goles y ambos anotan",
+
+  // Cards
+  cards_asian_handicap: "Hándicap asiático de tarjetas",
+  cards_european_handicap: "Hándicap europeo de tarjetas",
+  cards_over_under: "Más/menos tarjetas",
+  cards_over_under_between_0_and_10_m: "Más/menos tarjetas (0 a 10 min)",
+  yellow_asian_handicap: "Hándicap asiático de amarillas",
+  yellow_asian_handicap_1st_half: "Hándicap asiático de amarillas (1er tiempo)",
+  yellow_asian_handicap_2nd_half: "Hándicap asiático de amarillas (2do tiempo)",
+  yellow_cards_1x2: "1X2 de tarjetas amarillas",
+  yellow_cards_1x2_1st_half: "1X2 de tarjetas amarillas (1er tiempo)",
+  yellow_cards_1x2_2nd_half: "1X2 de tarjetas amarillas (2do tiempo)",
+  yellow_double_chance: "Doble oportunidad de amarillas",
+  yellow_odd_even: "Tarjetas amarillas par/impar",
+  yellow_over_under: "Más/menos tarjetas amarillas",
+  yellow_over_under_1st_half: "Más/menos tarjetas amarillas (1er tiempo)",
+  yellow_over_under_2nd_half: "Más/menos tarjetas amarillas (2do tiempo)",
+  red_card_in_the_match_1st_half: "Tarjeta roja en el partido (1er tiempo)",
+  first_card_received_3_way: "Quién recibe la primera tarjeta",
+
+  // Clean sheet / win to nil
+  clean_sheet_away: "Visitante no recibe goles",
+  clean_sheet_home: "Local no recibe goles",
+  win_to_nil: "Gana sin recibir goles",
+  win_to_nil_away: "Visitante gana sin recibir goles",
+  win_to_nil_home: "Local gana sin recibir goles",
+
+  // Corners
+  corners_1x2: "1X2 de córners",
+  corners_1x2_1st_half: "1X2 de córners (1er tiempo)",
+  corners_1x2_2nd_half: "1X2 de córners (2do tiempo)",
+  corners_asian_handicap: "Hándicap asiático de córners",
+  corners_asian_handicap_1st_half: "Hándicap asiático de córners (1er tiempo)",
+  corners_asian_handicap_2nd_half: "Hándicap asiático de córners (2do tiempo)",
+  corners_double_chance: "Doble oportunidad de córners",
+  corners_european_handicap: "Hándicap europeo de córners",
+  corners_odd_even: "Córners par/impar",
+  corners_over_under: "Más/menos córners",
+  corners_race_to: "Primero en llegar a X córners",
+  corners_total_between_0_and_10m: "Total de córners (0 a 10 min)",
+  corners_total_range: "Rango de córners totales",
+  total_corners_1st_half: "Total de córners (1er tiempo)",
+  total_corners_2nd_half: "Total de córners (2do tiempo)",
+  total_corners_3_way: "Total de córners (3 vías)",
+  multicorners: "Múltiples córners",
+
+  // Correct/exact score & goal counts
+  correct_score_first_half: "Resultado exacto (1er tiempo)",
+  correct_score_second_half: "Resultado exacto (2do tiempo)",
+  exact_goals_number: "Cantidad exacta de goles",
+  exact_goals_number_first_half: "Cantidad exacta de goles (1er tiempo)",
+  second_half_exact_goals_number: "Cantidad exacta de goles (2do tiempo)",
+  result_total_goals: "Resultado y total de goles",
+  number_of_goals_in_match: "Cantidad de goles del partido",
+  own_goal: "Gol en contra",
+  scoring_draw: "Empate con goles",
+
+  // Double chance / draw no bet
+  double_chance_first_half: "Doble oportunidad (1er tiempo)",
+  double_chance_second_half: "Doble oportunidad (2do tiempo)",
+  draw_no_bet_1st_half: "Empate anula la apuesta (1er tiempo)",
+  draw_no_bet_2nd_half: "Empate anula la apuesta (2do tiempo)",
+
+  // Half winners / split-half markets
+  first_half_winner: "Ganador del 1er tiempo",
+  second_half_winner: "Ganador del 2do tiempo",
+  first_10_min_winner: "Ganador de los primeros 10 minutos",
+  highest_scoring_half: "Tiempo con más goles",
+  ht_ft_double: "Resultado 1er tiempo / final combinado",
+  win_both_halves: "Gana ambos tiempos",
+  to_win_either_half: "Gana algún tiempo",
+  goals_over_under_first_half: "Más/menos goles (1er tiempo)",
+  goals_over_under_second_half: "Más/menos goles (2do tiempo)",
+  odd_even_first_half: "Par/impar (1er tiempo)",
+  odd_even_second_half: "Par/impar (2do tiempo)",
+
+  // Goal scorer / method
+  first_goal_method: "Método del primer gol",
+  first_goal_scorer: "Primer goleador",
+  last_goal_scorer: "Último goleador",
+  first_team_to_score_3_way_1st_half: "Primer equipo en anotar (1er tiempo, 3 vías)",
+  goal_method_outside_the_box: "Gol de fuera del área",
+  team_to_score_last: "Último equipo en anotar",
+  player_to_score_or_assist: "Jugador anota o asiste",
+
+  // Goal-time windows
+  goal_in_1_15_minutes: "Gol entre el minuto 1 y 15",
+  goal_in_16_30_minutes: "Gol entre el minuto 16 y 30",
+  goal_in_31_45_minutes: "Gol entre el minuto 31 y 45",
+  goal_in_46_60_minutes: "Gol entre el minuto 46 y 60",
+  goal_in_61_75_minutes: "Gol entre el minuto 61 y 75",
+  goal_in_76_90_minutes: "Gol entre el minuto 76 y 90",
+  over_under_15m_30m: "Más/menos goles (15 a 30 min)",
+  over_under_30m_45m: "Más/menos goles (30 a 45 min)",
+
+  // Fouls
+  fouls_1x2: "1X2 de faltas",
+  fouls_away_total: "Total de faltas del visitante",
+  fouls_double_chance: "Doble oportunidad de faltas",
+  fouls_handicap: "Hándicap de faltas",
+  fouls_home_total: "Total de faltas del local",
+  fouls_odd_even: "Faltas par/impar",
+  fouls_total: "Total de faltas",
+  player_fouls_committed: "Faltas cometidas por jugador",
+
+  // Offsides
+  offsides_1x2: "1X2 de offsides",
+  offsides_away_total: "Total de offsides del visitante",
+  offsides_double_chance: "Doble oportunidad de offsides",
+  offsides_handicap: "Hándicap de offsides",
+  offsides_home_total: "Total de offsides del local",
+  offsides_total: "Total de offsides",
+
+  // Shots
+  shotontarget_1x2: "1X2 de tiros al arco",
+  shotontarget_handicap: "Hándicap de tiros al arco",
+  shots_1x2: "1X2 de tiros",
+  total_shotongoal: "Total de tiros al arco",
+  total_shots: "Total de tiros",
+  total_tackles: "Total de entradas (tackles)",
+
+  // Penalties
+  to_miss_a_penalty: "Erra un penal",
+  to_score_a_penalty: "Convierte un penal",
+
+  // Scoring patterns
+  to_score_in_both_halves: "Anota en ambos tiempos",
+  to_score_in_both_halves_by_teams: "Equipo anota en ambos tiempos",
+  to_win_from_behind: "Gana tras ir perdiendo",
+
+  // Per-side totals
+  total_away: "Total del visitante",
+  total_home: "Total del local",
+
+  // Misc
+  winning_margin: "Margen de victoria",
+  goalkeeper_saves: "Atajadas del arquero",
+};
+
+// Last-resort fallback for a market key with no curated label anywhere yet (API-Football
+// can return dozens of niche bet types — see slugifyMarketName in
+// packages/api-football-client) — better than showing the raw snake_case slug.
+function humanizeMarketId(marketId: string): string {
+  const words = marketId.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function marketLabel(marketId: string): string {
+  const curated = curatedMarketLabel(marketId);
+  if (curated !== marketId) return curated;
+  return PAGE_ONLY_MARKET_LABELS[marketId] ?? humanizeMarketId(marketId);
+}
 
 const outcomeKey = (name: string, point: number | undefined) => `${name}|${point ?? ""}`;
 
@@ -102,10 +334,7 @@ export function LiveOddsTable({
 
   const outcomeLabel = (key: string) => {
     const [name, pointStr] = key.split("|");
-    if (name === "Draw") return "Empate";
-    if (!pointStr) return name;
-    const point = Number(pointStr);
-    return `${name} (${point > 0 ? "+" : ""}${point})`;
+    return curatedOutcomeLabel(name, pointStr ? Number(pointStr) : undefined);
   };
 
   return (
@@ -214,9 +443,4 @@ export function LiveOddsTable({
       </p>
     </div>
   );
-}
-
-function marketLabel(marketId: string): string {
-  const labels: Record<string, string> = { h2h: "Ganador del partido", spreads: "Hándicap", totals: "Más/menos" };
-  return labels[marketId] ?? marketId;
 }

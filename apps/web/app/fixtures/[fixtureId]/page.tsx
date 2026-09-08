@@ -6,7 +6,12 @@ import { Reveal } from "@/components/reveal";
 export const dynamic = "force-dynamic";
 
 export default async function FixturePage({ params }: PageProps<"/fixtures/[fixtureId]">) {
-  const { fixtureId } = await params;
+  // Route params aren't auto-decoded here (confirmed live: a literal "%3A" reaches this
+  // component unchanged) — API-Football-sourced fixture ids are all `apifootball:<id>`
+  // (colon and all), so without this every one of them 404s on the odds_cache lookup
+  // below despite existing, now that API-Football is soccer's sole odds source.
+  const { fixtureId: rawFixtureId } = await params;
+  const fixtureId = decodeURIComponent(rawFixtureId);
 
   let bookmakerOdds: Awaited<ReturnType<typeof getOdds>>["bookmakerOdds"] = {};
   let source: Awaited<ReturnType<typeof getOdds>>["source"] | null = null;
