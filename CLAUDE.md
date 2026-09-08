@@ -278,22 +278,34 @@ a different, viable use of the same account/key, not a retry of the abandoned on
   any call combining `league` + `season` for 2025/2026 is blocked, exactly like the
   stats endpoints were in August.
 - **But odds calls that don't combine `league`+`season` work fine for the current
-  season**: `GET /fixtures?date=<date>` (no `league`), `GET /odds?fixture=<id>` (single
-  fixture, no `season`), and `GET /odds?date=<date>` (bulk, no `league`/`season`) all
-  returned real 2026-season data. This is why the design below never filters `/odds` by
-  league server-side — it fetches everything for a date and filters client-side.
-- **Cost model is per fixture/page, not per market or bookmaker** — the opposite of The
-  Odds API. One `GET /odds?date=` page returns up to 10 fixtures, **every** bookmaker
-  and **every** bet type for those fixtures, for 1 request. A live sample day
-  (2026-09-08 fixtures, queried 2026-09-07) paginated to **16 pages** worldwide.
-  `GET /odds?fixture=<id>` similarly returns one fixture's full bookmaker/market spread
-  (13 bookmakers, up to 97 bet types for one bookmaker) for 1 request.
+  season**: `GET /fixtures?date=<date>` (no `league`) and `GET /odds?fixture=<id>`
+  (single fixture, no `season`) both returned real 2026-season data.
+- **The bulk `GET /odds?date=<date>` endpoint (no `league`/`season`) looked like it also
+  worked, but has a serious hidden gap — confirmed live 2026-09-08: it silently
+  excludes major competitions.** A first design used this endpoint (paginated, ~16
+  pages/day worldwide) to discover which fixtures have odds, then filtered client-side
+  to our watched leagues. That missed UEFA Champions League, Copa Libertadores, and
+  Copa Sudamericana fixtures entirely — 9 real fixtures across those 3 competitions for
+  2026-09-09, each with confirmed real odds (5-13 bookmakers) via a direct
+  `GET /odds?fixture=<id>` call for that exact fixture id, **zero of which appeared
+  anywhere in the bulk endpoint's paginated listing for that date**. Whatever governs
+  the bulk endpoint's inclusion list on the Free plan, it isn't "does this fixture have
+  odds" — direct per-fixture lookup and the bulk listing are not the same dataset. This
+  would have meant the integration silently never surfaced any of 3 of our 13 watched
+  competitions, indefinitely, with no error anywhere. **Fixed same-day** by dropping the
+  bulk endpoint entirely — see Design below.
+- **Cost model is per fixture, not per market or bookmaker** — the opposite of The Odds
+  API. One `GET /odds?fixture=<id>` call returns **every** bookmaker and **every** bet
+  type for that one fixture (13 bookmakers, up to 97 bet types for one bookmaker, in a
+  live sample). `GET /fixtures?date=<date>` (used only for discovery, not odds) returns
+  every fixture worldwide for that date (250-350 in samples taken) in one call
+  regardless of how many are ultimately relevant.
 - **Catalog**: `GET /odds/bookmakers` lists 33 supported bookmakers (includes Bet365,
   William Hill, Betfair, 1xBet, Marathonbet, Pinnacle, Unibet, Betano, ...).
   `GET /odds/bets` lists 338 distinct bet types (Match Winner, Asian Handicap, Goals
   Over/Under, Both Teams Score, Double Chance, Correct Score, Odd/Even, and many
   first-half/second-half/per-team variants). Actual coverage per fixture is much
-  smaller than 338 and varies — the live sample fixture (Liga Profesional Argentina)
+  smaller than 338 and varies — a live sample fixture (Liga Profesional Argentina)
   had 13 bookmakers actually quoted, none of `betway`/`codere_it`/`betsson`/`espnbet`
   among them, same "coverage isn't uniform" caveat already documented for The Odds API.
 
@@ -306,6 +318,16 @@ same daily job as `/api/ingest/poll` (`.github/workflows/poll-odds.yml`), **afte
 `apps/web/lib/ingest/fixture-matching.ts`) and a ±90 minute kickoff-time window, scoped
 to the fixture's `sport_key` only. A fixture with no match yet gets inserted as a new
 `odds_cache` row keyed `` `apifootball:${fixtureId}` `` instead of being dropped.
+
+Fixture discovery (`ApiFootballClient.getOddsForLeagues` in `packages/api-football-client`)
+calls `GET /fixtures?date=<date>` once (unfiltered, ~250-350 results worldwide),
+filters client-side down to fixtures whose `league.id` is one of the 13 watched ones
+(see the league map below), then makes one `GET /odds?fixture=<id>` call per matching
+fixture — **not** the bulk `GET /odds?date=` endpoint (see the confirmed-live gap
+above). A fixture with no bookmaker odds posted yet is skipped, not an error. This is
+also cheaper than the abandoned bulk approach: most days only a handful of fixtures
+fall in our 13 leagues out of the hundreds worldwide, versus paying for ~16 bulk pages
+of mostly-irrelevant data every run regardless.
 
 `odds_cache.bookmaker_odds` has no `provider` column — instead,
 `packages/api-football-client` prefixes every bookmaker key it writes with `af:`
@@ -336,16 +358,20 @@ from The Odds API, unchanged.
 
 ### Budget
 
-The route only queries **"tomorrow"** (1 day ahead) — `requests/day ≈ 1 (fixtures
-lookup for team names) + pages_for_that_day` (~16 confirmed live) ≈ **~17
-requests/day**, comfortable under the 100/day Free-plan cap.
-`MAX_PAGES_PER_RUN = 30` in the route is a defensive bound (mirrors
+The route only queries **"tomorrow"** (1 day ahead) — `requests/day ≈ 1 (the
+/fixtures?date= discovery call) + fixtures_in_our_13_leagues_that_day`. Live samples
+for a single day: a quiet day had 0 matching fixtures (1 request total); a Champions
+League/Libertadores/Sudamericana day had 9 matching fixtures (10 requests total). Even
+a stacked matchday (Champions League's 36-team league phase can put ~18 matches on one
+date, plus other watched leagues) stays comfortably under the 100/day Free-plan cap.
+`MAX_FIXTURES_PER_RUN = 40` in the route is a defensive bound (mirrors
 `MAX_H2H_FETCHES_PER_RUN`/`MAX_SPORTS_PER_RUN` elsewhere in this codebase), not a
 budget calculation. Widening the look-ahead window (more than 1 day) or adding a second
-run/day multiplies this linearly (`requests/day = days_queried × runs/day × (1 +
-pages_per_day)`) — redo that math first. If quota ever gets tight, the account holder
-has already said they're open to the Pro plan ($19/mo, 7,500/day) — free tier is enough
-for this integration's current scope, so there was no reason to start there.
+run/day multiplies the per-day fixture count accordingly (`requests/day ≈ days_queried
+× runs/day × (1 + matching_fixtures_per_day)`) — redo that math first. If quota ever
+gets tight, the account holder has already said they're open to the Pro plan ($19/mo,
+7,500/day) — free tier is enough for this integration's current scope, so there was no
+reason to start there.
 
 ### Explicitly out of scope for this integration (see grading note above too)
 
@@ -353,9 +379,10 @@ for this integration's current scope, so there was no reason to start there.
 - **NBA/NFL/tennis** odds are untouched — API-Football only ever supplies soccer.
 - **Outrights/futures** (tournament winner, top scorer) were not added — `odds_cache`
   is keyed per fixture, not per tournament; that would need real schema/UI work.
-- `API_FOOTBALL_API_KEY` is set locally (`apps/web/.env.local`) but — same gap as
-  `ANTHROPIC_API_KEY`/`HIGHLIGHTLY_API_KEY`/`ODDSAPI_API_KEY` before it (see "Next
-  steps" below) — **not yet in the real production Vercel project.**
+- `API_FOOTBALL_API_KEY` is set locally (`apps/web/.env.local`) and, as of 2026-09-08,
+  synced into the real production Vercel project too (see item 1 in "Next steps" for
+  how) — unlike `ANTHROPIC_API_KEY`/`HIGHLIGHTLY_API_KEY`/`ODDSAPI_API_KEY`, which are
+  still only local.
 
 ## Highlightly quota (2026-08-31)
 
@@ -516,12 +543,7 @@ Worth adding real alerting (e.g. a Slack/email ping on workflow failure) at some
    before the 2026-09-02 OddsPapi→The Odds API migration started) but not yet in
    production**, same gap as items 2 and 6 — needs adding to the real prod Vercel
    project (see item 1).
-8. **`API_FOOTBALL_API_KEY` is set locally (`apps/web/.env.local`) — already synced to
-   the real prod Vercel project (production/preview/development) on 2026-09-07** via
-   the GitHub-secrets → `sync-env.mjs` path (see item 1's deploy mechanism) — needs
-   the actual ingest route (`/api/ingest/poll-api-football-odds`) merged to `main` to
-   start using it (see "Complementary odds provider: API-Football" above).
-9. **`CLERK_WEBHOOK_SIGNING_SECRET` is not set anywhere** (not `.env.local`, not GitHub
+8. **`CLERK_WEBHOOK_SIGNING_SECRET` is not set anywhere** (not `.env.local`, not GitHub
    secrets, so not synced to Vercel either) — found 2026-09-04 while debugging "aceptar
    apuesta" silently failing to save. `apps/web/app/api/webhooks/clerk/route.ts` (which
    would create/update a `users` row on Clerk's `user.created`/`user.updated` events)

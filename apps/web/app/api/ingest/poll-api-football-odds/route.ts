@@ -1,14 +1,16 @@
 import { getDb, oddsCache } from "@bet/db";
 import { ApiFootballError, getApiFootballClient } from "@bet/api-football-client";
 import { eq, sql } from "drizzle-orm";
-import { sportKeyForApiFootballLeague } from "@/lib/ingest/api-football-league-map";
+import { API_FOOTBALL_LEAGUE_IDS, sportKeyForApiFootballLeague } from "@/lib/ingest/api-football-league-map";
 import { matchFixture, type OddsCacheFixtureCandidate } from "@/lib/ingest/fixture-matching";
 
-// Confirmed live 2026-09-07: a single day's worldwide /odds?date= slate paginated to
-// 16 pages. This caps a pathological day (way more matches than usual, or a provider
-// change) from eating the 100/day Free-plan budget in one run — see CLAUDE.md's
-// "API-Football odds quota" section for the full math this is based on.
-const MAX_PAGES_PER_RUN = 30;
+// Defensive cap on how many per-fixture /odds calls one run makes — a pathological day
+// (e.g. a Champions League matchday with many simultaneous kickoffs across our watched
+// competitions) shouldn't be able to blow the 100/day Free-plan budget in one run. See
+// CLAUDE.md's "API-Football odds quota" section for the full math this is based on.
+const MAX_FIXTURES_PER_RUN = 40;
+
+const WATCHED_LEAGUE_IDS = new Set(Object.values(API_FOOTBALL_LEAGUE_IDS));
 
 // This route must run AFTER /api/ingest/poll in the same cron job: it merges
 // API-Football's odds into rows The Odds API already wrote for the same fixture
@@ -26,9 +28,9 @@ export async function GET(req: Request) {
   // math in CLAUDE.md — widening this window means redoing that math first.
   const date = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  let fixtures;
+  let watched;
   try {
-    fixtures = await client.getOddsByDate(date, MAX_PAGES_PER_RUN);
+    watched = await client.getOddsForLeagues(date, WATCHED_LEAGUE_IDS, MAX_FIXTURES_PER_RUN);
   } catch (err) {
     const error =
       err instanceof ApiFootballError
@@ -36,10 +38,6 @@ export async function GET(req: Request) {
         : { message: String(err), status: 0 };
     return Response.json({ date, merged: 0, inserted: 0, errors: { odds: error } }, { status: 502 });
   }
-
-  // API-Football is soccer-only and covers far more leagues worldwide than we watch —
-  // filter down to the 13 sport_keys in api-football-league-map.ts.
-  const watched = fixtures.filter((f) => sportKeyForApiFootballLeague(f.leagueId) !== undefined);
 
   const db = getDb();
   // One odds_cache read per distinct watched sport_key this run, not per fixture.
@@ -115,8 +113,7 @@ export async function GET(req: Request) {
 
   return Response.json({
     date,
-    fixturesSeen: fixtures.length,
-    fixturesWatched: watched.length,
+    fixturesWithOdds: watched.length,
     merged,
     inserted,
     quota: client.getLastQuotaSnapshot(),

@@ -5,10 +5,10 @@ export * from "./types";
 const DEFAULT_HOST = "https://v3.football.api-sports.io";
 const DEFAULT_TIMEOUT_MS = 10_000;
 // Confirmed live 2026-09-07 against the Free plan: x-ratelimit-limit is 10/minute.
-// Pacing page fetches at this interval keeps a run comfortably under that (~9.2/min)
+// Pacing requests at this interval keeps a run comfortably under that (~9.2/min)
 // without needing a 429-triggered backoff for the common case — see CLAUDE.md's
 // "API-Football odds quota" section for the full budget math this pacing is based on.
-const PAGE_FETCH_INTERVAL_MS = 6_500;
+const REQUEST_INTERVAL_MS = 6_500;
 
 // The raw response shapes below mirror what api-sports.io's /odds and /odds/bookmakers
 // endpoints actually return (confirmed live, not from docs alone) — snake_case is
@@ -40,7 +40,6 @@ interface RawOddsFixtureEntry {
 interface RawOddsResponse {
   response: RawOddsFixtureEntry[];
   errors: unknown;
-  paging: { current: number; total: number };
 }
 
 interface RawFixtureTeams {
@@ -49,7 +48,8 @@ interface RawFixtureTeams {
 }
 
 interface RawFixtureEntry {
-  fixture: { id: number };
+  fixture: { id: number; date: string };
+  league: { id: number };
   teams: RawFixtureTeams;
 }
 
@@ -213,56 +213,50 @@ export class ApiFootballClient {
   }
 
   /**
-   * Fixture ids + team names for a given date, unfiltered by league. Confirmed live
-   * (2026-09-07) this works for the current season even though league+season-scoped
-   * queries are blocked on the Free plan (see CLAUDE.md's "API-Football odds quota"
-   * section) — used as a fallback to resolve team names for a fixture id when the
-   * /odds response itself doesn't carry them (it doesn't).
+   * Odds for every fixture on a date that belongs to one of `leagueIds`, discovered via
+   * `GET /fixtures?date=` (unfiltered — confirmed live 2026-09-07 this works for the
+   * current season even though `league`+`season`-scoped queries are blocked on the
+   * Free plan, see CLAUDE.md's "API-Football odds quota" section) and then one
+   * `GET /odds?fixture=<id>` call per matching fixture.
+   *
+   * This deliberately does NOT use the bulk `GET /odds?date=` endpoint — confirmed
+   * live 2026-09-08 that it silently excludes major competitions (UEFA Champions
+   * League, Copa Libertadores, Copa Sudamericana all confirmed excluded) that a direct
+   * `GET /odds?fixture=<id>` call for the exact same fixture *does* return odds for.
+   * Filtering to our watched leagues before fetching odds — rather than fetching
+   * everything and filtering after, the way the abandoned bulk approach did — is also
+   * cheaper: most days only a handful of fixtures fall in `leagueIds` out of the
+   * 250-350 worldwide, versus ~16 bulk pages/day regardless of relevance.
+   *
+   * A fixture with no bookmaker odds posted yet (`/odds?fixture=` returns an empty
+   * `response`) is skipped, not treated as an error. `maxFixtures` is a defensive cap
+   * (the ingest route passes one) so a pathological day (e.g. a Champions League
+   * matchday with ~18 simultaneous kickoffs across our watched competitions) can't
+   * blow the daily request budget in one run.
    */
-  async getFixturesByDate(date: string): Promise<Map<string, RawFixtureTeams>> {
-    const raw = await this.request<RawFixturesResponse>("/fixtures", { date });
-    const byId = new Map<string, RawFixtureTeams>();
-    for (const entry of raw.response) {
-      byId.set(String(entry.fixture.id), entry.teams);
-    }
-    return byId;
-  }
+  async getOddsForLeagues(
+    date: string,
+    leagueIds: ReadonlySet<number>,
+    maxFixtures: number,
+  ): Promise<ApiFootballFixtureOdds[]> {
+    const fixturesRaw = await this.request<RawFixturesResponse>("/fixtures", { date });
+    const relevant = fixturesRaw.response.filter((f) => leagueIds.has(f.league.id)).slice(0, maxFixtures);
 
-  /**
-   * All fixtures with odds for one date, worldwide, unfiltered by league — deliberately
-   * NOT using the `league`+`season` filter combination, since that's blocked for the
-   * current season on the Free plan (confirmed live). Callers filter to their watched
-   * leagues client-side (see apps/web/lib/ingest/api-football-league-map.ts's usage in
-   * the ingest route). Paginated at 10 fixtures/page by the API; `maxPages` is a
-   * defensive cap (the ingest route passes one) so a pathological day with far more
-   * pages than usual can't blow the daily request budget in one run.
-   */
-  async getOddsByDate(date: string, maxPages: number): Promise<ApiFootballFixtureOdds[]> {
     const fixtures: ApiFootballFixtureOdds[] = [];
-    let fixtureTeamsById: Map<string, RawFixtureTeams> | undefined;
-
-    let page = 1;
-    let totalPages = 1;
-    while (page <= totalPages && page <= maxPages) {
-      if (page > 1) await new Promise((resolve) => setTimeout(resolve, PAGE_FETCH_INTERVAL_MS));
-      const raw = await this.request<RawOddsResponse>("/odds", { date, page });
-      totalPages = raw.paging.total;
-
-      for (const entry of raw.response) {
-        const fixtureId = String(entry.fixture.id);
-        if (!fixtureTeamsById) fixtureTeamsById = await this.getFixturesByDate(date);
-        const teams = fixtureTeamsById.get(fixtureId);
-        if (!teams) continue; // Shouldn't happen in practice; skip rather than guess team names.
-        fixtures.push({
-          fixtureId,
-          leagueId: entry.league.id,
-          commenceTime: entry.fixture.date,
-          homeTeam: teams.home.name,
-          awayTeam: teams.away.name,
-          bookmakerOdds: normalizeBookmakers(entry.bookmakers, teams.home.name, teams.away.name),
-        });
-      }
-      page++;
+    for (let i = 0; i < relevant.length; i++) {
+      if (i > 0) await new Promise((resolve) => setTimeout(resolve, REQUEST_INTERVAL_MS));
+      const entry = relevant[i]!;
+      const oddsRaw = await this.request<RawOddsResponse>("/odds", { fixture: entry.fixture.id });
+      const oddsEntry = oddsRaw.response[0];
+      if (!oddsEntry) continue; // No bookmaker has posted odds yet for this fixture.
+      fixtures.push({
+        fixtureId: String(entry.fixture.id),
+        leagueId: entry.league.id,
+        commenceTime: entry.fixture.date,
+        homeTeam: entry.teams.home.name,
+        awayTeam: entry.teams.away.name,
+        bookmakerOdds: normalizeBookmakers(oddsEntry.bookmakers, entry.teams.home.name, entry.teams.away.name),
+      });
     }
     return fixtures;
   }
