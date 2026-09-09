@@ -40,6 +40,22 @@ export interface ApiFootballFixtureOdds {
   bookmakerOdds: ApiFootballBookmakerOdds;
 }
 
+/**
+ * One fixture from `GET /fixtures?date=` discovery, before any odds are fetched —
+ * see `ApiFootballClient.findFixturesByDate`. `getOddsForLeagues` builds on top of
+ * this for the odds-ingest path; `/api/ingest/settle` uses it standalone to resolve a
+ * "legacy" (pre-provider-migration) fixtureId to a real API-Football fixture id by
+ * team name + kickoff time, without also paying for an `/odds` call it doesn't need.
+ */
+export interface ApiFootballFixtureSummary {
+  fixtureId: string;
+  leagueId: number;
+  /** ISO 8601, from the fixture's own `fixture.date`. */
+  commenceTime: string;
+  homeTeam: string;
+  awayTeam: string;
+}
+
 export interface QuotaSnapshot {
   /** From x-ratelimit-requests-remaining (daily cap). */
   remainingDay?: number;
@@ -69,4 +85,35 @@ export interface ApiFootballFixtureResult {
    * report a halftime score. */
   homeGoalsHalftime: number | null;
   awayGoalsHalftime: number | null;
+}
+
+/**
+ * Whether each side missed a penalty during the match, from `GET /fixtures/events?fixture=`
+ * — used to grade the "to_miss_a_penalty" market (see
+ * apps/web/lib/settlement/grade-non-h2h-leg.ts). A "Missed Penalty" event is API-Football's
+ * own vocabulary (`type: "Goal", detail: "Missed Penalty"`, confirmed live 2026-09-09) — a
+ * penalty attempt is always recorded as a "Goal"-type event regardless of outcome.
+ *
+ * Note: this endpoint doesn't report fixture status — the caller is expected to already
+ * have that from a companion ApiFootballFixtureResult for the same fixture (settle/route.ts
+ * only ever requests events for a fixture it's also requesting results for).
+ */
+export interface ApiFootballFixtureEvents {
+  fixtureId: string;
+  missedPenaltyByTeam: { home: boolean; away: boolean };
+}
+
+/**
+ * Each side's total shots for the match, from `GET /fixtures/statistics?fixture=` — used
+ * to grade the "shots_1x2" market (see apps/web/lib/settlement/grade-non-h2h-leg.ts). Null
+ * when API-Football doesn't report statistics for this fixture (common for lower-tier
+ * competitions) — not the same as 0 shots, so callers must leave it pending rather than
+ * guess.
+ *
+ * Note: like ApiFootballFixtureEvents, this endpoint doesn't report fixture status either.
+ */
+export interface ApiFootballFixtureStatistics {
+  fixtureId: string;
+  homeTotalShots: number | null;
+  awayTotalShots: number | null;
 }

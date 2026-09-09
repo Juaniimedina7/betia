@@ -1,16 +1,30 @@
-import type { ApiFootballFixtureResult } from "@bet/api-football-client";
+import type {
+  ApiFootballFixtureEvents,
+  ApiFootballFixtureResult,
+  ApiFootballFixtureStatistics,
+} from "@bet/api-football-client";
 import type { LegGrade } from "./grade-h2h-leg";
 
 // Same status vocabulary as api-football-result.ts's toMatchResult (h2h path) — kept
-// as its own copy here rather than shared, since the two graders read different
-// fields off ApiFootballFixtureResult and there's nothing else to couple them on.
+// as its own copy here rather than shared, since these graders read different fields
+// off ApiFootballFixtureResult and there's nothing else to couple them on.
 const FINISHED_STATUSES = new Set(["FT", "AET", "PEN"]);
 const UNPLAYED_STATUSES = new Set(["PST", "CANC", "ABD", "AWD", "WO"]);
+
+/** "finished" = has a real result to grade against; "unplayed" = grade every leg on
+ * this fixture void, don't guess; "pending" = not finished yet, try again later. */
+function classifyStatus(statusShort: string): "finished" | "unplayed" | "pending" {
+  if (UNPLAYED_STATUSES.has(statusShort)) return "unplayed";
+  if (FINISHED_STATUSES.has(statusShort)) return "finished";
+  return "pending";
+}
 
 export const GRADABLE_NON_H2H_MARKETS = [
   "odd_even",
   "to_score_in_both_halves_by_teams",
   "to_win_from_behind",
+  "to_miss_a_penalty",
+  "shots_1x2",
 ] as const;
 
 interface GradableNonH2hLeg {
@@ -48,8 +62,9 @@ export function gradeNonH2hLeg(
   marketId: string,
   result: ApiFootballFixtureResult,
 ): LegGrade | null {
-  if (UNPLAYED_STATUSES.has(result.statusShort)) return "void";
-  if (!FINISHED_STATUSES.has(result.statusShort)) return null; // not finished yet
+  const status = classifyStatus(result.statusShort);
+  if (status === "unplayed") return "void";
+  if (status === "pending") return null;
 
   const { homeGoals, awayGoals, homeGoalsHalftime, awayGoalsHalftime } = result;
   if (homeGoals === null || awayGoals === null) return null;
@@ -76,4 +91,57 @@ export function gradeNonH2hLeg(
     default:
       return null;
   }
+}
+
+/**
+ * Grades a "to_miss_a_penalty" leg (API-Football bet id 100, confirmed live outcomes
+ * "Home"/"Away") — that side wins iff it has at least one "Missed Penalty" event;
+ * otherwise it loses. This isn't a complementary pair (both sides lose when neither
+ * misses a penalty, the common case), so there's no tie/void case to handle here.
+ *
+ * `result` supplies fixture status (this endpoint doesn't report one of its own — see
+ * ApiFootballFixtureEvents); `events` is null when the events endpoint returned nothing
+ * for this fixture id (unresolvable id, or a genuinely eventless finished match — see
+ * getFixtureEvents), which only matters if `result` says the match is actually finished.
+ */
+export function gradeToMissAPenaltyLeg(
+  leg: GradableNonH2hLeg,
+  result: ApiFootballFixtureResult,
+  events: ApiFootballFixtureEvents | null,
+): LegGrade | null {
+  const status = classifyStatus(result.statusShort);
+  if (status === "unplayed") return "void";
+  if (status === "pending") return null;
+  if (!events) return null; // finished, but the events endpoint had nothing for this id
+
+  if (leg.outcomeId === "Home") return events.missedPenaltyByTeam.home ? "won" : "lost";
+  if (leg.outcomeId === "Away") return events.missedPenaltyByTeam.away ? "won" : "lost";
+  return null;
+}
+
+/**
+ * Grades a "shots_1x2" leg (API-Football bet id 340 "Shots.1x2", confirmed live
+ * outcomes "Home"/"Draw"/"Away") — compares each side's total shots for the match.
+ *
+ * `result` supplies fixture status (this endpoint doesn't report one of its own — see
+ * ApiFootballFixtureStatistics); `stats` is null when the statistics endpoint had
+ * nothing for this fixture id, or either total is null when API-Football just doesn't
+ * report statistics for this competition — either way, leave the leg pending rather
+ * than guess.
+ */
+export function gradeShots1x2Leg(
+  leg: GradableNonH2hLeg,
+  result: ApiFootballFixtureResult,
+  stats: ApiFootballFixtureStatistics | null,
+): LegGrade | null {
+  const status = classifyStatus(result.statusShort);
+  if (status === "unplayed") return "void";
+  if (status === "pending") return null;
+  if (!stats || stats.homeTotalShots === null || stats.awayTotalShots === null) return null;
+
+  const { homeTotalShots, awayTotalShots } = stats;
+  if (leg.outcomeId === "Home") return homeTotalShots > awayTotalShots ? "won" : "lost";
+  if (leg.outcomeId === "Away") return awayTotalShots > homeTotalShots ? "won" : "lost";
+  if (leg.outcomeId === "Draw") return homeTotalShots === awayTotalShots ? "won" : "lost";
+  return null;
 }

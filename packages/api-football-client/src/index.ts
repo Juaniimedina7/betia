@@ -1,7 +1,10 @@
 import type {
   ApiFootballBookmakerOdds,
+  ApiFootballFixtureEvents,
   ApiFootballFixtureOdds,
   ApiFootballFixtureResult,
+  ApiFootballFixtureStatistics,
+  ApiFootballFixtureSummary,
   ApiFootballMarketQuote,
   QuotaSnapshot,
 } from "./types";
@@ -77,6 +80,27 @@ interface RawFixtureStatusEntry {
 
 interface RawFixtureStatusResponse {
   response: RawFixtureStatusEntry[];
+  errors: unknown;
+}
+
+interface RawFixtureEventEntry {
+  team: { name: string };
+  type: string;
+  detail: string;
+}
+
+interface RawFixtureEventsResponse {
+  response: RawFixtureEventEntry[];
+  errors: unknown;
+}
+
+interface RawFixtureStatisticEntry {
+  team: { name: string };
+  statistics: { type: string; value: string | number | null }[];
+}
+
+interface RawFixtureStatisticsResponse {
+  response: RawFixtureStatisticEntry[];
   errors: unknown;
 }
 
@@ -241,11 +265,30 @@ export class ApiFootballClient {
   }
 
   /**
-   * Odds for every fixture on a date that belongs to one of `leagueIds`, discovered via
-   * `GET /fixtures?date=` (unfiltered — confirmed live 2026-09-07 this works for the
-   * current season even though `league`+`season`-scoped queries are blocked on the
-   * Free plan, see CLAUDE.md's "API-Football odds quota" section) and then one
-   * `GET /odds?fixture=<id>` call per matching fixture.
+   * Every fixture on a date, worldwide, via `GET /fixtures?date=` (unfiltered —
+   * confirmed live 2026-09-07 this works for the current season even though
+   * `league`+`season`-scoped queries are blocked on the Free plan, see CLAUDE.md's
+   * "API-Football odds quota" section). One call per date, no league filter applied
+   * server-side — callers filter the ~250-350 results client-side (by leagueId, or by
+   * team name/kickoff time — see /api/ingest/settle's legacy-fixtureId resolution).
+   * Split out of getOddsForLeagues (2026-09-09) so a caller that only needs fixture
+   * discovery isn't forced to also pay for an `/odds` call per fixture.
+   */
+  async findFixturesByDate(date: string): Promise<ApiFootballFixtureSummary[]> {
+    const fixturesRaw = await this.request<RawFixturesResponse>("/fixtures", { date });
+    return fixturesRaw.response.map((entry) => ({
+      fixtureId: String(entry.fixture.id),
+      leagueId: entry.league.id,
+      commenceTime: entry.fixture.date,
+      homeTeam: entry.teams.home.name,
+      awayTeam: entry.teams.away.name,
+    }));
+  }
+
+  /**
+   * Odds for every fixture on a date that belongs to one of `leagueIds` (discovered via
+   * findFixturesByDate above) and then one `GET /odds?fixture=<id>` call per matching
+   * fixture.
    *
    * This deliberately does NOT use the bulk `GET /odds?date=` endpoint — confirmed
    * live 2026-09-08 that it silently excludes major competitions (UEFA Champions
@@ -276,29 +319,29 @@ export class ApiFootballClient {
     maxFixtures: number,
     allowedBookmakerNames?: ReadonlySet<string>,
   ): Promise<ApiFootballFixtureOdds[]> {
-    const fixturesRaw = await this.request<RawFixturesResponse>("/fixtures", { date });
-    const relevant = fixturesRaw.response.filter((f) => leagueIds.has(f.league.id)).slice(0, maxFixtures);
+    const discovered = await this.findFixturesByDate(date);
+    const relevant = discovered.filter((f) => leagueIds.has(f.leagueId)).slice(0, maxFixtures);
 
     const fixtures: ApiFootballFixtureOdds[] = [];
     for (let i = 0; i < relevant.length; i++) {
       if (i > 0) await new Promise((resolve) => setTimeout(resolve, REQUEST_INTERVAL_MS));
       const entry = relevant[i]!;
-      const oddsRaw = await this.request<RawOddsResponse>("/odds", { fixture: entry.fixture.id });
+      const oddsRaw = await this.request<RawOddsResponse>("/odds", { fixture: entry.fixtureId });
       const oddsEntry = oddsRaw.response[0];
       if (!oddsEntry) continue; // No bookmaker has posted odds yet for this fixture.
       const bookmakerOdds = normalizeBookmakers(
         oddsEntry.bookmakers,
-        entry.teams.home.name,
-        entry.teams.away.name,
+        entry.homeTeam,
+        entry.awayTeam,
         allowedBookmakerNames,
       );
       if (Object.keys(bookmakerOdds).length === 0) continue; // None of this fixture's bookmakers are allowed.
       fixtures.push({
-        fixtureId: String(entry.fixture.id),
-        leagueId: entry.league.id,
-        commenceTime: entry.fixture.date,
-        homeTeam: entry.teams.home.name,
-        awayTeam: entry.teams.away.name,
+        fixtureId: entry.fixtureId,
+        leagueId: entry.leagueId,
+        commenceTime: entry.commenceTime,
+        homeTeam: entry.homeTeam,
+        awayTeam: entry.awayTeam,
         bookmakerOdds,
       });
     }
@@ -339,6 +382,77 @@ export class ApiFootballClient {
           awayGoalsHalftime: entry.score.halftime.away,
         });
       }
+    }
+    return results;
+  }
+
+  /**
+   * Whether each side missed a penalty during one fixture, via
+   * `GET /fixtures/events?fixture=<id>` — confirmed live 2026-09-09 this works on the
+   * Free plan for the current season (fixture-id-scoped, not league+season-scoped).
+   * Used to grade the "to_miss_a_penalty" market (see
+   * apps/web/lib/settlement/grade-non-h2h-leg.ts).
+   *
+   * Unlike getFixtureResults, this endpoint takes exactly one fixture id per call (no
+   * `ids=` batching) — callers should only request fixtures that actually have a
+   * pending to_miss_a_penalty leg, not every fixture indiscriminately. Paced at
+   * REQUEST_INTERVAL_MS between calls, same as getOddsForLeagues, to respect the
+   * 10/minute rate limit.
+   */
+  async getFixtureEvents(fixtureIds: string[]): Promise<ApiFootballFixtureEvents[]> {
+    const results: ApiFootballFixtureEvents[] = [];
+    for (let i = 0; i < fixtureIds.length; i++) {
+      if (i > 0) await new Promise((resolve) => setTimeout(resolve, REQUEST_INTERVAL_MS));
+      const fixtureId = fixtureIds[i]!;
+      const raw = await this.request<RawFixtureEventsResponse>("/fixtures/events", { fixture: fixtureId });
+      const isMissedPenalty = (e: RawFixtureEventEntry) => e.type === "Goal" && e.detail === "Missed Penalty";
+      // No events at all can mean "fixture id unknown" as much as "no events yet" —
+      // callers combine this with a companion ApiFootballFixtureResult's statusShort
+      // to tell a genuinely finished 0-events match from an unresolvable id.
+      if (raw.response.length === 0) continue;
+      const homeTeam = raw.response[0]!.team.name;
+      results.push({
+        fixtureId,
+        missedPenaltyByTeam: {
+          home: raw.response.some((e) => isMissedPenalty(e) && e.team.name === homeTeam),
+          away: raw.response.some((e) => isMissedPenalty(e) && e.team.name !== homeTeam),
+        },
+      });
+    }
+    return results;
+  }
+
+  /**
+   * Each side's total shots for one fixture, via `GET /fixtures/statistics?fixture=<id>`
+   * — confirmed live 2026-09-09 this works on the Free plan for the current season
+   * (fixture-id-scoped, not league+season-scoped). Used to grade the "shots_1x2"
+   * market (see apps/web/lib/settlement/grade-non-h2h-leg.ts).
+   *
+   * Unlike getFixtureResults, this endpoint takes exactly one fixture id per call (no
+   * `ids=` batching) — callers should only request fixtures that actually have a
+   * pending shots_1x2 leg, not every fixture indiscriminately. Paced at
+   * REQUEST_INTERVAL_MS between calls, same as getOddsForLeagues, to respect the
+   * 10/minute rate limit. A fixture some competitions don't report statistics for
+   * comes back with null totals — see ApiFootballFixtureStatistics.
+   */
+  async getFixtureStatistics(fixtureIds: string[]): Promise<ApiFootballFixtureStatistics[]> {
+    const results: ApiFootballFixtureStatistics[] = [];
+    for (let i = 0; i < fixtureIds.length; i++) {
+      if (i > 0) await new Promise((resolve) => setTimeout(resolve, REQUEST_INTERVAL_MS));
+      const fixtureId = fixtureIds[i]!;
+      const raw = await this.request<RawFixtureStatisticsResponse>("/fixtures/statistics", { fixture: fixtureId });
+      if (raw.response.length < 2) continue; // Statistics not reported for this fixture.
+      const totalShotsFor = (entry: RawFixtureStatisticEntry): number | null => {
+        const stat = entry.statistics.find((s) => s.type === "Total Shots");
+        if (!stat || stat.value === null) return null;
+        const n = Number(stat.value);
+        return Number.isNaN(n) ? null : n;
+      };
+      results.push({
+        fixtureId,
+        homeTotalShots: totalShotsFor(raw.response[0]!),
+        awayTotalShots: totalShotsFor(raw.response[1]!),
+      });
     }
     return results;
   }
