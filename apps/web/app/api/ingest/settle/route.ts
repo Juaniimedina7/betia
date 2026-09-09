@@ -74,10 +74,6 @@ export async function GET(req: Request) {
       ),
     );
 
-  if (pendingLegs.length === 0) {
-    return Response.json({ legsGraded: 0, slipsSettled: 0, sportsQueried: 0, apiFootballFixturesQueried: 0 });
-  }
-
   const oddsApiLegs = pendingLegs.filter((leg) => !leg.fixtureId.startsWith(API_FOOTBALL_PREFIX));
   const apiFootballLegs = pendingLegs.filter((leg) => leg.fixtureId.startsWith(API_FOOTBALL_PREFIX));
 
@@ -154,6 +150,18 @@ export async function GET(req: Request) {
     touchedBetSlipIds.add(leg.betSlipId);
   }
 
+  // Also pick up any already-unsettled slip that already has a "lost" leg from a
+  // previous run — before the early-lost check below existed, a slip with a lost h2h
+  // leg alongside a never-gradable non-h2h leg (see above) could get stuck "saved"
+  // forever even though its outcome was already certain. This sweeps those clean too,
+  // not just ones graded in this exact run.
+  const alreadyLostSlips = await db
+    .selectDistinct({ betSlipId: betSlipLegs.betSlipId })
+    .from(betSlipLegs)
+    .innerJoin(betSlips, eq(betSlipLegs.betSlipId, betSlips.id))
+    .where(and(eq(betSlipLegs.status, "lost"), inArray(betSlips.status, ["saved", "placed_by_user"])));
+  for (const { betSlipId } of alreadyLostSlips) touchedBetSlipIds.add(betSlipId);
+
   let slipsSettled = 0;
   for (const betSlipId of touchedBetSlipIds) {
     const legs = await db
@@ -161,9 +169,15 @@ export async function GET(req: Request) {
       .from(betSlipLegs)
       .where(eq(betSlipLegs.betSlipId, betSlipId));
 
-    if (legs.some((l) => l.status === "pending")) continue; // still waiting on another leg
+    // A single lost leg already dooms the whole parlay — settle it as "lost" right
+    // away instead of waiting for every leg to resolve. This matters because some
+    // legs (any non-h2h market) never get graded at all (see MatchResult/gradeH2hLeg
+    // above), so waiting for "no pending left" could otherwise strand a slip forever
+    // even once its outcome is already certain.
+    const anyLost = legs.some((l) => l.status === "lost");
+    if (!anyLost && legs.some((l) => l.status === "pending")) continue; // still waiting on another leg
 
-    const status = deriveSlipStatus(legs.map((l) => l.status as LegGrade));
+    const status = anyLost ? "lost" : deriveSlipStatus(legs.map((l) => l.status as LegGrade));
     await db.update(betSlips).set({ status, settledAt: new Date() }).where(eq(betSlips.id, betSlipId));
     slipsSettled++;
   }
