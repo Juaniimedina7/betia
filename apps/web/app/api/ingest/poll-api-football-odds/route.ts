@@ -4,20 +4,20 @@ import { eq, sql } from "drizzle-orm";
 import { API_FOOTBALL_LEAGUE_IDS, sportKeyForApiFootballLeague } from "@/lib/ingest/api-football-league-map";
 import { matchFixture, type OddsCacheFixtureCandidate } from "@/lib/ingest/fixture-matching";
 
-// How many days ahead of today this route looks — was widened from 1 to 7 on
-// 2026-09-08 so fixtures browsed on /odds show enriched markets well before their own
-// "tomorrow"; narrowed to 3 the same day the cron moved from once/day to twice/day
-// (12:00 and 18:00 Argentina time, see .github/workflows/poll-odds.yml) — at
-// DAYS_AHEAD=7 two runs/day would have been 2 x 7 x 13 = 182 requests/day, over the
-// 100/day Free-plan cap. See CLAUDE.md's "API-Football odds quota" section for the
-// budget math this and MAX_FIXTURES_PER_DAY are based on.
-const DAYS_AHEAD = 3;
+// How many days ahead of today this route looks — widened from 1 to 7 on 2026-09-08 so
+// fixtures browsed on /odds show enriched markets well before their own "tomorrow";
+// briefly narrowed to 3 the same day when the cron moved to twice/day, then reverted
+// back to 7 (and the cron back to once/day, 13:00 Argentina time, see
+// .github/workflows/poll-odds.yml) later that same day. See CLAUDE.md's "API-Football
+// odds quota" section for the budget math this and MAX_FIXTURES_PER_DAY are based on.
+const DAYS_AHEAD = 7;
 
 // Defensive per-day cap on how many per-fixture /odds calls one run makes — a
 // pathological day (e.g. a Champions League matchday with many simultaneous kickoffs
 // across our watched competitions) shouldn't be able to blow the 100/day Free-plan
-// budget. Worst case with DAYS_AHEAD=3 and 2 runs/day: 2 x 3 x (1 discovery + 12
-// fixtures) = 78 requests/day, under the 100/day cap.
+// budget across the whole DAYS_AHEAD window in one run. Worst case with DAYS_AHEAD=7
+// and 1 run/day: 7 x (1 discovery + 12 fixtures) = 91 requests/day, under the 100/day
+// cap (with little headroom for manual workflow_dispatch runs the same day).
 const MAX_FIXTURES_PER_DAY = 12;
 
 const WATCHED_LEAGUE_IDS = new Set(Object.values(API_FOOTBALL_LEAGUE_IDS));

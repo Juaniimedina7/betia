@@ -1,4 +1,4 @@
-name: Poll odds twice a day
+name: Poll odds once a day
 
 # Vercel Hobby solo permite crons de 1 vez por dia, asi que esto corre desde
 # GitHub Actions en su lugar y pega directo al endpoint de ingesta.
@@ -22,11 +22,11 @@ name: Poll odds twice a day
 #     futbol, cada torneo (Wimbledon, US Open, etc.) es su propio sport_key
 #     que solo esta activo ~1-2 semanas al anio, asi que esto es dinamico en
 #     vez de hardcodeado.
-# => 2 fijos + hasta 2 de tenis = ~2-4 requests/corrida. A 2 corridas/dia (ver
-# el horario abajo, cambiado de 1 a 2 corridas/dia el 2026-09-08) son ~60
-# corridas/mes x 2-4 = ~120-240 requests/mes, todavia lejos del limite de
-# 500/mes. Redo this math (runs/day x sport_keys x markets x 30) antes de
-# subir la cadencia, agregar deportes o cambiar los markets pedidos.
+# => 2 fijos + hasta 2 de tenis = ~2-4 requests/corrida. A 1 corrida/dia (ver
+# el horario abajo) son ~30 corridas/mes x 2-4 = ~60-120 requests/mes, muy
+# lejos del limite de 500/mes. Redo this math (runs/day x sport_keys x
+# markets x 30) antes de subir la cadencia, agregar deportes o cambiar los
+# markets pedidos.
 #
 # DEFAULT_BOOKMAKERS (apps/web/app/api/ingest/poll/route.ts) tiene 7 casas
 # (pinnacle, unibet, betano_uk, codere_it, betsson, betway, espnbet) — subirlo
@@ -34,14 +34,14 @@ name: Poll odds twice a day
 # pedido, no por bookmaker. Desde 2026-09-08 esta lista solo aplica a
 # NBA/NFL/tenis (ver arriba).
 #
-# Corre 2 veces por dia: 12:00 y 18:00 hora Argentina (15:00 y 21:00 UTC,
-# cambiado de "cada 60 minutos" el 2026-09-08). El paso de API-Football abajo
-# bajo DAYS_AHEAD de 7 a 3 el mismo dia especificamente para que esto entre en
-# su cap de 100/dia con 2 corridas (ver ese archivo).
+# Corre 1 vez/dia a las 13:00 hora Argentina = 16:00 UTC (cambiado de 2
+# corridas/dia a 12:00/18:00 el mismo 2026-09-08, de vuelta a 1 corrida a
+# pedido). El paso de API-Football abajo vuelve a DAYS_AHEAD=7 (de 3) para la
+# misma corrida unica diaria — ver ese archivo para el presupuesto resultante
+# (7 dias x 1 corrida/dia).
 on:
   schedule:
-    - cron: "0 15 * * *"
-    - cron: "0 21 * * *"
+    - cron: "0 16 * * *"
   workflow_dispatch: # permite dispararlo a mano desde la pestania Actions
 
 jobs:
