@@ -1,4 +1,5 @@
 import { resolveBookmakerLink, bookmakerDisplayName } from "@/lib/bookmaker-links";
+import { marketLabel, outcomeLabel } from "@bet/mcp-tools/market-labels";
 
 export interface TicketLeg {
   selection: string;
@@ -10,6 +11,14 @@ export interface TicketLeg {
   statisticalProbability?: number;
   /** Deep link pointing directly to the event/market on the bookmaker's site. */
   deepLink?: string;
+  /** Market/outcome breakdown, when the caller has it — powers the per-leg "Ver
+   * detalle" dropdown and the non-h2h market badge on the collapsed row. */
+  marketId?: string;
+  outcomeName?: string;
+  point?: number;
+  homeTeam?: string;
+  awayTeam?: string;
+  status?: "pending" | "won" | "lost" | "void";
   /** Present only when this leg came straight from a live build_combo result with every
    * field save_bet_slip needs — absent for legs re-derived from an already-saved bet
    * slip. Used exclusively to power the "Aceptar apuesta" button. */
@@ -29,6 +38,27 @@ export interface TicketLeg {
     edgePct?: number;
   };
 }
+
+/** Splits a stored `bet_slip_legs.outcome_id` (`${outcomeName}@${point}` or just
+ * `outcomeName`, see save-bet-slip.ts) back into its parts for display. */
+export function parseOutcomeId(outcomeId: string): { outcomeName: string; point?: number } {
+  const at = outcomeId.lastIndexOf("@");
+  if (at === -1) return { outcomeName: outcomeId };
+  const point = Number(outcomeId.slice(at + 1));
+  return Number.isNaN(point) ? { outcomeName: outcomeId } : { outcomeName: outcomeId.slice(0, at), point };
+}
+
+const LEG_STATUS_LABELS: Record<string, string> = {
+  won: "Ganada",
+  lost: "Perdida",
+  void: "Anulada",
+};
+
+const LEG_STATUS_COLORS: Record<string, string> = {
+  won: "var(--color-edge)",
+  lost: "var(--color-danger)",
+  void: "var(--color-ink-faint)",
+};
 
 /**
  * The BETIA signature object: a betting slip rendered as a premium card.
@@ -87,53 +117,108 @@ export function ComboTicket({
       <ul className="divide-y divide-[var(--line)]">
         {legs.map((leg, i) => {
           const link = resolveBookmakerLink(leg.deepLink, leg.detail);
+          const isNonH2h = Boolean(leg.marketId && leg.marketId !== "h2h");
+          const hasDetail = Boolean(leg.marketId || (leg.homeTeam && leg.awayTeam) || leg.status);
           return (
-          <li key={i} className="flex items-center gap-3 px-5 py-3">
-            <span
-              className="tnum flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs"
-              style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-ink-muted)" }}
-            >
-              {i + 1}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-[var(--color-ink)]">{leg.selection}</p>
-              {leg.detail && (
-                <p className="truncate text-xs text-[var(--color-ink-muted)]">{leg.detail}</p>
-              )}
-            </div>
-            {typeof leg.statisticalProbability === "number" && (
+          <li key={i} className="px-5 py-3">
+            <div className="flex items-center gap-3">
               <span
-                className="chip tnum hidden sm:inline-flex"
-                title="Probabilidad estadística (modelo Poisson)"
+                className="tnum flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs"
+                style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-ink-muted)" }}
               >
-                {(leg.statisticalProbability * 100).toFixed(0)}% prob.
+                {i + 1}
               </span>
-            )}
-            {typeof leg.edgePct === "number" && leg.edgePct > 0 && (
-              <span
-                className="chip chip-edge tnum hidden sm:inline-flex"
-                title="Edge vs. precio justo de mercado"
-              >
-                +{leg.edgePct.toFixed(1)}%
-              </span>
-            )}
-            <div className="flex flex-col items-end gap-1">
-              <span className="tnum w-14 text-right text-sm font-semibold text-[var(--color-gold)]">
-                {leg.price.toFixed(2)}
-              </span>
-              {link && (
-                <a
-                  href={link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 rounded-md bg-[var(--color-edge)]/10 px-1.5 py-0.5 text-[11px] font-medium text-[var(--color-edge)] transition-colors hover:bg-[var(--color-edge)]/20"
-                  title={`Apostar en ${bookmakerDisplayName(leg.detail || "")}`}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-[var(--color-ink)]">{leg.selection}</p>
+                {(isNonH2h || leg.detail) && (
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                    {isNonH2h && (
+                      <span className="chip text-[10px] !px-2 !py-0.5">{marketLabel(leg.marketId!)}</span>
+                    )}
+                    {leg.detail && (
+                      <span className="truncate text-xs text-[var(--color-ink-muted)]">{leg.detail}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+              {typeof leg.statisticalProbability === "number" && (
+                <span
+                  className="chip tnum hidden sm:inline-flex"
+                  title="Probabilidad estadística (modelo Poisson)"
                 >
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                  Ir a apostar
-                </a>
+                  {(leg.statisticalProbability * 100).toFixed(0)}% prob.
+                </span>
               )}
+              {typeof leg.edgePct === "number" && leg.edgePct > 0 && (
+                <span
+                  className="chip chip-edge tnum hidden sm:inline-flex"
+                  title="Edge vs. precio justo de mercado"
+                >
+                  +{leg.edgePct.toFixed(1)}%
+                </span>
+              )}
+              <div className="flex flex-col items-end gap-1">
+                <span className="tnum w-14 text-right text-sm font-semibold text-[var(--color-gold)]">
+                  {leg.price.toFixed(2)}
+                </span>
+                {link && (
+                  <a
+                    href={link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-md bg-[var(--color-edge)]/10 px-1.5 py-0.5 text-[11px] font-medium text-[var(--color-edge)] transition-colors hover:bg-[var(--color-edge)]/20"
+                    title={`Apostar en ${bookmakerDisplayName(leg.detail || "")}`}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    Ir a apostar
+                  </a>
+                )}
+              </div>
             </div>
+
+            {hasDetail && (
+              <details className="group mt-2 pl-9">
+                <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-[11px] text-[var(--color-ink-faint)] transition-colors hover:text-[var(--color-ink-muted)]">
+                  <span>Ver detalle de la apuesta</span>
+                  <span className="group-open:hidden">▾</span>
+                  <span className="hidden group-open:inline">▴</span>
+                </summary>
+                <div className="mt-1.5 space-y-1 rounded-lg bg-white/[0.03] px-3 py-2 text-xs text-[var(--color-ink-muted)]">
+                  {leg.homeTeam && leg.awayTeam && (
+                    <p>
+                      <span className="text-[var(--color-ink-faint)]">Partido: </span>
+                      {leg.homeTeam} vs {leg.awayTeam}
+                    </p>
+                  )}
+                  {leg.marketId && (
+                    <p>
+                      <span className="text-[var(--color-ink-faint)]">Mercado: </span>
+                      {marketLabel(leg.marketId)}
+                    </p>
+                  )}
+                  {leg.outcomeName && (
+                    <p>
+                      <span className="text-[var(--color-ink-faint)]">Selección: </span>
+                      {outcomeLabel(leg.outcomeName, leg.point)}
+                    </p>
+                  )}
+                  {leg.detail && (
+                    <p>
+                      <span className="text-[var(--color-ink-faint)]">Casa de apuestas: </span>
+                      {bookmakerDisplayName(leg.detail)} · cuota {leg.price.toFixed(2)}
+                    </p>
+                  )}
+                  {leg.status && (
+                    <p>
+                      <span className="text-[var(--color-ink-faint)]">Resultado: </span>
+                      <span style={{ color: LEG_STATUS_COLORS[leg.status] ?? "var(--color-ink-muted)" }}>
+                        {LEG_STATUS_LABELS[leg.status] ?? "Pendiente"}
+                      </span>
+                    </p>
+                  )}
+                </div>
+              </details>
+            )}
           </li>
           );
         })}

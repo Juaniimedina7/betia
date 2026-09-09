@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { AcceptableComboTicket } from "@/components/combo-ticket-accept";
-import { ComboTicket } from "@/components/combo-ticket";
+import { ComboTicket, parseOutcomeId } from "@/components/combo-ticket";
 import { SimpleListCard } from "@/components/agent-cards/simple-list-card";
 import { FixtureListCard, type FixtureSummary } from "@/components/agent-cards/fixture-list-card";
 import { OddsCard, type GetOddsOutput } from "@/components/agent-cards/odds-card";
@@ -69,20 +69,40 @@ function CollapsibleStep({ summary, children }: { summary: string; children: Rea
 function renderUserBetSlip(output: unknown) {
   const o = output as {
     betSlip: { title?: string | null; status?: string; combinedOddsDecimal?: string; reasoning?: string | null } | null;
-    legs: Array<{ selectionLabel: string; bookmaker: string; priceDecimal: string; edgePct?: string | null }>;
+    legs: Array<{
+      selectionLabel: string;
+      bookmaker: string;
+      priceDecimal: string;
+      edgePct?: string | null;
+      deepLink?: string | null;
+      marketId?: string;
+      outcomeId?: string;
+      participant1Id?: string;
+      participant2Id?: string;
+      status?: "pending" | "won" | "lost" | "void";
+    }>;
   } | null;
   if (!o?.betSlip) {
     return <div className="card px-5 py-4 text-sm text-[var(--color-ink-muted)]">No encontré esa apuesta.</div>;
   }
   return (
     <ComboTicket
-      legs={o.legs.map((leg) => ({
-        selection: leg.selectionLabel,
-        detail: leg.bookmaker,
-        price: Number(leg.priceDecimal),
-        edgePct: leg.edgePct != null ? Number(leg.edgePct) : undefined,
-        deepLink: (leg as any).deepLink,
-      }))}
+      legs={o.legs.map((leg) => {
+        const { outcomeName, point } = leg.outcomeId ? parseOutcomeId(leg.outcomeId) : { outcomeName: undefined, point: undefined };
+        return {
+          selection: leg.selectionLabel,
+          detail: leg.bookmaker,
+          price: Number(leg.priceDecimal),
+          edgePct: leg.edgePct != null ? Number(leg.edgePct) : undefined,
+          deepLink: leg.deepLink ?? undefined,
+          marketId: leg.marketId,
+          outcomeName,
+          point,
+          homeTeam: leg.participant1Id,
+          awayTeam: leg.participant2Id,
+          status: leg.status,
+        };
+      })}
       multiplier={Number(o.betSlip.combinedOddsDecimal ?? 0)}
       label={`Estado: ${o.betSlip.status}`}
       note={o.betSlip.reasoning ?? undefined}

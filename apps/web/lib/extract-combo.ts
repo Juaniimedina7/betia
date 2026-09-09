@@ -79,6 +79,11 @@ export function extractCombo(
         statisticalProbability:
           typeof l.statisticalProbability === "number" ? l.statisticalProbability : undefined,
         deepLink: l.deepLink,
+        marketId: l.marketId,
+        outcomeName: l.outcomeName,
+        point: l.point,
+        homeTeam: l.homeTeam,
+        awayTeam: l.awayTeam,
         raw: toRaw(l),
       })),
       multiplier: Number(d.combinedOddsDecimal ?? 0),

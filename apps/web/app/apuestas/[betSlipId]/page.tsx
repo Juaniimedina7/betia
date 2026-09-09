@@ -3,7 +3,7 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { getUserBetSlip, updateBetSlipOutcome } from "@bet/mcp-tools";
 import { notFound } from "next/navigation";
-import { ComboTicket } from "@/components/combo-ticket";
+import { ComboTicket, parseOutcomeId } from "@/components/combo-ticket";
 import { resolveBookmakerLink, bookmakerDisplayName } from "@/lib/bookmaker-links";
 
 export default async function BetSlipPage({ params }: PageProps<"/apuestas/[betSlipId]">) {
@@ -48,13 +48,22 @@ export default async function BetSlipPage({ params }: PageProps<"/apuestas/[betS
 
       <div className="mt-6">
         <ComboTicket
-          legs={legs.map((leg) => ({
-            selection: leg.selectionLabel,
-            detail: leg.bookmaker,
-            price: Number(leg.priceDecimal),
-            edgePct: leg.edgePct != null ? Number(leg.edgePct) : undefined,
-            deepLink: leg.deepLink ?? undefined,
-          }))}
+          legs={legs.map((leg) => {
+            const { outcomeName, point } = parseOutcomeId(leg.outcomeId);
+            return {
+              selection: leg.selectionLabel,
+              detail: leg.bookmaker,
+              price: Number(leg.priceDecimal),
+              edgePct: leg.edgePct != null ? Number(leg.edgePct) : undefined,
+              deepLink: leg.deepLink ?? undefined,
+              marketId: leg.marketId,
+              outcomeName,
+              point,
+              homeTeam: leg.participant1Id,
+              awayTeam: leg.participant2Id,
+              status: leg.status,
+            };
+          })}
           multiplier={Number(betSlip.combinedOddsDecimal)}
           label={`Estado: ${betSlip.status}`}
           note={betSlip.reasoning ?? undefined}
