@@ -67,7 +67,12 @@ export async function listFixtures(input: ListFixturesInput) {
       .filter((f) => {
         if (!input.teamName) return true;
         const candidates = [f.homeTeam, f.awayTeam].filter((t): t is string => !!t);
-        return resolveByName(input.teamName, candidates) !== undefined;
+        if (resolveByName(input.teamName, candidates) !== undefined) return true;
+        // A caller may pass both teams in one phrase ("Boca San Pablo") instead of
+        // one name at a time — retry per word so that still narrows correctly
+        // instead of falsely reporting nothing cached.
+        const words = input.teamName.split(/\s+/).filter((w) => w.length > 2);
+        return words.some((w) => resolveByName(w, candidates) !== undefined);
       })
       .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
