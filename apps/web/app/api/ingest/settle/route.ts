@@ -1,10 +1,11 @@
 import { getApiFootballClient, type ApiFootballFixtureResult } from "@bet/api-football-client";
 import { betSlipLegs, betSlips, getDb } from "@bet/db";
 import { getOddsApiClient, type Score } from "@bet/odds-api-client";
-import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, like, lte, or } from "drizzle-orm";
 import { toMatchResult } from "@/lib/settlement/api-football-result";
 import { deriveSlipStatus } from "@/lib/settlement/derive-slip-status";
 import { gradeH2hLeg, type LegGrade, type MatchResult } from "@/lib/settlement/grade-h2h-leg";
+import { GRADABLE_NON_H2H_MARKETS, gradeNonH2hLeg } from "@/lib/settlement/grade-non-h2h-leg";
 
 // Give a match time to actually finish before asking for its result.
 const SETTLE_DELAY_MS = 3 * 60 * 60 * 1000;
@@ -41,6 +42,13 @@ const API_FOOTBALL_PREFIX = "apifootball:";
  * `apifootball:`-prefixed) matches neither path and is left pending until MAX_AGE_MS
  * abandons it — a one-time cutover gap for whatever was still in flight, not an
  * ongoing one.
+ *
+ * Also grades GRADABLE_NON_H2H_MARKETS (odd_even, to_score_in_both_halves_by_teams,
+ * to_win_from_behind — see grade-non-h2h-leg.ts) for `apifootball:`-prefixed legs
+ * only, since those are the only ones this route can resolve to a real API-Football
+ * fixture id (needed for the halftime score these markets grade against). Every other
+ * non-h2h market (spreads/totals/player props/etc.) still has no grading at all —
+ * that's the pre-existing, still-accepted gap this doesn't touch.
  */
 export async function GET(req: Request) {
   const cronSecret = process.env.CRON_SECRET;
@@ -58,6 +66,7 @@ export async function GET(req: Request) {
       betSlipId: betSlipLegs.betSlipId,
       fixtureId: betSlipLegs.fixtureId,
       sportId: betSlipLegs.sportId,
+      marketId: betSlipLegs.marketId,
       participant1Id: betSlipLegs.participant1Id,
       participant2Id: betSlipLegs.participant2Id,
       outcomeId: betSlipLegs.outcomeId,
@@ -67,7 +76,13 @@ export async function GET(req: Request) {
     .where(
       and(
         eq(betSlipLegs.status, "pending"),
-        eq(betSlipLegs.marketId, "h2h"),
+        or(
+          eq(betSlipLegs.marketId, "h2h"),
+          and(
+            inArray(betSlipLegs.marketId, GRADABLE_NON_H2H_MARKETS),
+            like(betSlipLegs.fixtureId, `${API_FOOTBALL_PREFIX}%`),
+          ),
+        ),
         lte(betSlipLegs.startTime, new Date(now - SETTLE_DELAY_MS)),
         gte(betSlipLegs.startTime, new Date(now - MAX_AGE_MS)),
         inArray(betSlips.status, ["saved", "placed_by_user"]),
@@ -113,13 +128,21 @@ export async function GET(req: Request) {
     ...new Set(apiFootballLegs.map((leg) => leg.fixtureId.slice(API_FOOTBALL_PREFIX.length))),
   ].slice(0, MAX_API_FOOTBALL_FIXTURES_PER_RUN);
 
+  // Raw API-Football results, keyed the same way as resultsByFixtureId — needed
+  // alongside the provider-agnostic MatchResult above because gradeNonH2hLeg grades
+  // off halftime score, which MatchResult (shared with The Odds API's Score shape)
+  // has no room for.
+  const apiFootballRawByFixtureId = new Map<string, ApiFootballFixtureResult>();
+
   let apiFootballQuota: unknown;
   if (apiFootballFixtureIds.length > 0) {
     try {
       const client = getApiFootballClient();
       const results: ApiFootballFixtureResult[] = await client.getFixtureResults(apiFootballFixtureIds);
       for (const result of results) {
-        resultsByFixtureId.set(`${API_FOOTBALL_PREFIX}${result.fixtureId}`, toMatchResult(result));
+        const key = `${API_FOOTBALL_PREFIX}${result.fixtureId}`;
+        resultsByFixtureId.set(key, toMatchResult(result));
+        apiFootballRawByFixtureId.set(key, result);
       }
       apiFootballQuota = client.getLastQuotaSnapshot();
     } catch (err) {
@@ -139,10 +162,17 @@ export async function GET(req: Request) {
 
   for (const leg of pendingLegs) {
     if (!queriedFixtureIds.has(leg.fixtureId)) continue; // skipped this run (a per-run cap, or a pre-migration id neither provider can resolve)
-    const result = resultsByFixtureId.get(leg.fixtureId);
-    if (!result) continue; // provider didn't return this fixture (too old, wrong id, etc.)
 
-    const grade = gradeH2hLeg(leg, result);
+    let grade: LegGrade | null;
+    if (leg.marketId === "h2h") {
+      const result = resultsByFixtureId.get(leg.fixtureId);
+      if (!result) continue; // provider didn't return this fixture (too old, wrong id, etc.)
+      grade = gradeH2hLeg(leg, result);
+    } else {
+      const rawResult = apiFootballRawByFixtureId.get(leg.fixtureId);
+      if (!rawResult) continue; // provider didn't return this fixture
+      grade = gradeNonH2hLeg(leg, leg.marketId, rawResult);
+    }
     if (grade === null) continue; // not finished yet, or can't be graded confidently
 
     await db.update(betSlipLegs).set({ status: grade }).where(eq(betSlipLegs.id, leg.id));

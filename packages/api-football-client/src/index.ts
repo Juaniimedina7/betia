@@ -72,6 +72,7 @@ interface RawFixtureStatusEntry {
   fixture: { id: number; status: { short: string } };
   teams: RawFixtureTeams;
   goals: { home: number | null; away: number | null };
+  score: { halftime: { home: number | null; away: number | null } };
 }
 
 interface RawFixtureStatusResponse {
@@ -334,6 +335,8 @@ export class ApiFootballClient {
           awayTeam: entry.teams.away.name,
           homeGoals: entry.goals.home,
           awayGoals: entry.goals.away,
+          homeGoalsHalftime: entry.score.halftime.home,
+          awayGoalsHalftime: entry.score.halftime.away,
         });
       }
     }

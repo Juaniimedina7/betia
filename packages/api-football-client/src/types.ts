@@ -62,4 +62,11 @@ export interface ApiFootballFixtureResult {
   awayTeam: string;
   homeGoals: number | null;
   awayGoals: number | null;
+  /** From `score.halftime` — needed to grade halftime-dependent markets (odd_even
+   * doesn't need this, it's derivable from the fulltime goals alone; see
+   * apps/web/lib/settlement/grade-non-h2h-leg.ts). Null under the same conditions as
+   * homeGoals/awayGoals (not started/in progress), or for a competition that doesn't
+   * report a halftime score. */
+  homeGoalsHalftime: number | null;
+  awayGoalsHalftime: number | null;
 }
