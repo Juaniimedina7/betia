@@ -453,6 +453,16 @@ gone for `<today+2>` onward specifically,
 don't just assume a quota bump also lifted the date window — the Free plan's docs never
 mentioned this restriction either, so Pro's docs shouldn't be trusted blindly here.
 
+**Separately found the same day: the `dates` array never actually queried today.** It
+was built as `today+1 .. today+DAYS_AHEAD`, skipping `today+0` entirely — meaning a
+same-day fixture never got real API-Football odds at all, even though `today` is
+squarely inside the Free plan's own `[today-1, today+1]` window from above. Fixed by
+starting the array at `i=0` instead of `i=1`, so at `DAYS_AHEAD=5` the route now queries
+`today .. today+4` (still 5 dates, same request budget) instead of `today+1 ..
+today+5`. This doubles the realistic Free-plan coverage from 1 usable day (tomorrow) to
+2 (today + tomorrow) for the same cost, since `today+2` onward still gets rejected until
+the Pro upgrade lands.
+
 ### Explicitly out of scope for this integration (see grading note above too)
 
 - **Settlement/grading** for non-h2h legs was not built — see the note above.

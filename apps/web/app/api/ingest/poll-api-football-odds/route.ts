@@ -4,7 +4,8 @@ import { eq, sql } from "drizzle-orm";
 import { API_FOOTBALL_LEAGUE_IDS, sportKeyForApiFootballLeague } from "@/lib/ingest/api-football-league-map";
 import { matchFixture, type OddsCacheFixtureCandidate } from "@/lib/ingest/fixture-matching";
 
-// How many days ahead of today this route looks. Confirmed live 2026-09-10: the Free
+// How many days this route looks at, STARTING FROM TODAY (see the `dates` array below —
+// it used to start at tomorrow, see the 2026-09-10 fix there). Confirmed live 2026-09-10: the Free
 // plan rejects `GET /fixtures?date=` for any date more than ~1 day out with
 // `errors.plan: "Free plans do not have access to this date, try from <today-1> to
 // <today+1>"` — a genuinely different (and narrower) restriction than the
@@ -94,8 +95,13 @@ export async function GET(req: Request) {
     .filter(Boolean);
   const allowedBookmakers = new Set(bookmakers.length > 0 ? bookmakers : DEFAULT_API_FOOTBALL_BOOKMAKERS);
 
+  // Starts at i=0 (today), not tomorrow — the Free plan's `[today-1, today+1]` window
+  // (see DAYS_AHEAD's comment above) actually includes today, but this used to skip it
+  // entirely (`i + 1`), so a same-day fixture never got real API-Football odds at all
+  // until it became "yesterday" and expired out of odds_cache. Found 2026-09-10 while
+  // checking why a same-day build_combo request had thinner coverage than tomorrow's.
   const dates = Array.from({ length: DAYS_AHEAD }, (_, i) =>
-    new Date(Date.now() + (i + 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    new Date(Date.now() + i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
   );
 
   const watched: Awaited<ReturnType<typeof client.getOddsForLeagues>> = [];
