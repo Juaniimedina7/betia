@@ -654,6 +654,38 @@ parlay-agent.ts` was updated to expect this implicit default and proactively off
 lowering `minProbability` (or switching to `"aggressive"`, 5%) the same way it already
 offered switching risk profiles for edge alone.
 
+### build_combo falls back to the highest achievable probability instead of returning empty (2026-09-10)
+
+**Product decision, diagnosed from a real conversation**: a user asked for "fútbol,
+70% de probabilidad, 5x, hasta 7 patas" and got an empty result no matter how much they
+raised `maxLegs` — the actual blocker was that no cached leg that week cleared 70% real
+probability, but the tool's only response to that was a flat "no candidates" error. The
+product call: **if the user asks for a probability that isn't available, return a real
+combo with the highest probability actually achievable that still meets every other
+requirement (target multiplier, leg count, edge floor), instead of nothing** — never
+leave the user with an empty result solely because of an unreachable probability floor.
+
+Implemented in `runSearch` (`packages/combo-engine/src/search.ts`): candidates are now
+filtered in two separate passes — edge floor first (`filterByRiskProfile(pool,
+riskProfile, 0)`), then the requested probability floor on top of that. If the
+probability pass empties the pool but the edge-only pass didn't, the search proceeds
+anyway using the edge-only pool (still ranked by `rankByConfidence`, so it naturally
+picks the highest-probability legs first) and the result carries a `warning` stating
+the requested floor plus the actual average real probability achieved
+(`bestProbabilityEstimate`, exported from `edge.ts`, mixing statistical-when-available
+with market-implied fair probability — same preference order used everywhere else).
+**Only the probability floor gets this fallback, not the edge floor** — if even the
+edge-only pass comes back empty (real cached edges essentially never fall below
+`aggressive`'s -8% floor, so this is rare), that's still a flat empty result, since an
+unreachable edge floor means "we'd be recommending a bad bet," a different problem than
+"we'd be recommending a bet less certain than you asked for."
+
+`apps/web/lib/agent/parlay-agent.ts` was updated to expect this: a non-empty result can
+now still carry a probability-floor `warning`, and the agent must never present that
+combo as satisfying the originally requested probability — it has to state plainly that
+the floor wasn't reachable and quote the real achieved probability from the warning
+before describing the combo.
+
 ## build_combo's `sports` param silently failed on anything but the exact literal group name (2026-09-10)
 
 **Diagnosed live from a real agent conversation**: a user asked for a generic "fútbol,

@@ -28,8 +28,10 @@ export const MIN_PROBABILITY_BY_PROFILE: Record<RiskProfile, number> = {
 
 /** Real chance of hitting: prefers the Poisson-model `statisticalProbability` when
  * available, falling back to the market-implied (de-vigged) `fairProbability` — same
- * preference order `rankByConfidence` uses. */
-function bestProbabilityEstimate(leg: CandidateLeg): number {
+ * preference order `rankByConfidence` uses. Exported so search.ts can report the
+ * actual achieved probability when a requested floor can't be met (see
+ * `runSearch`'s probability-floor fallback). */
+export function bestProbabilityEstimate(leg: CandidateLeg): number {
   return leg.statisticalProbability ?? leg.fairProbability;
 }
 

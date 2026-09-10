@@ -1,4 +1,4 @@
-import { filterByRiskProfile, MIN_PROBABILITY_BY_PROFILE, rankByConfidence } from "./edge";
+import { bestProbabilityEstimate, filterByRiskProfile, MIN_PROBABILITY_BY_PROFILE, rankByConfidence } from "./edge";
 import { marketFamilyOf } from "./market-families";
 import type { BuildComboConstraints, CandidateLeg, ComboResult } from "./types";
 
@@ -22,6 +22,15 @@ function averageStatisticalProbability(legs: CandidateLeg[]): number | undefined
   const withStats = legs.filter((leg) => leg.statisticalProbability !== undefined);
   if (withStats.length === 0) return undefined;
   return withStats.reduce((sum, leg) => sum + leg.statisticalProbability!, 0) / withStats.length;
+}
+
+/** Same "real chance of hitting" per leg as `bestProbabilityEstimate` (statistical when
+ * available, else market-implied fair probability), averaged — unlike
+ * `averageStatisticalProbability` this is always defined (fairProbability always
+ * exists), so it's what the probability-floor fallback below reports as "the highest
+ * we could actually get" when the requested floor is unreachable. */
+function averageRealProbability(legs: CandidateLeg[]): number {
+  return legs.reduce((sum, leg) => sum + bestProbabilityEstimate(leg), 0) / legs.length;
 }
 
 /**
@@ -105,27 +114,36 @@ function runSearch(
   const minProbability = constraints.minProbability ?? MIN_PROBABILITY_BY_PROFILE[constraints.riskProfile ?? "conservative"];
   const tolerance = constraints.tolerance ?? DEFAULT_TOLERANCE;
 
-  const pool = rankByConfidence(
-    filterByRiskProfile(
-      bestLegPerConflictKey(
-        allCandidates.filter((leg) => !excluded.has(leg.fixtureId)),
-        conflictKey,
-      ),
-      riskProfile,
-      minProbability,
-    ),
+  const deduped = bestLegPerConflictKey(
+    allCandidates.filter((leg) => !excluded.has(leg.fixtureId)),
+    conflictKey,
   );
 
-  if (pool.length === 0) {
+  // Edge floor only (minProbability=0) — isolates whether the requested PROBABILITY
+  // floor specifically is what's unreachable, as opposed to the edge floor (a much
+  // rarer, separate failure mode — real cached edges are almost never below -8%,
+  // "aggressive"'s own floor).
+  const edgeFilteredPool = filterByRiskProfile(deduped, riskProfile, 0);
+
+  if (edgeFilteredPool.length === 0) {
     return {
       legs: [],
       combinedOddsDecimal: 0,
       legCount: 0,
       averageEdgePct: 0,
       toleranceMet: false,
-      warning: `No hay patas candidatas con al menos ${Math.round(minProbability * 100)}% de probabilidad real (perfil "${riskProfile}") para esos filtros — probá con un porcentaje más bajo.`,
+      warning: `No hay patas candidatas que cumplan el piso de edge del perfil "${riskProfile}" para esos filtros.`,
     };
   }
+
+  const probFilteredPool = filterByRiskProfile(edgeFilteredPool, riskProfile, minProbability);
+
+  // The requested probability floor has no leg that clears it — rather than a flat
+  // empty result, fall back to the highest-probability legs actually available (still
+  // respecting the edge floor and every other constraint) and say so explicitly. See
+  // CLAUDE.md's "build_combo falls back to the highest achievable probability" section.
+  const probabilityUnreachable = probFilteredPool.length === 0;
+  const pool = rankByConfidence(probabilityUnreachable ? edgeFilteredPool : probFilteredPool);
 
   const targetMultiplier = constraints.targetMultiplier ?? deriveTargetFromLegCount(pool, constraints);
   const targetLog = Math.log(targetMultiplier);
@@ -149,6 +167,9 @@ function runSearch(
     }
   }
 
+  const probabilityFloorPct = Math.round(minProbability * 100);
+  const unreachableFloorNotice = `No hay patas con al menos ${probabilityFloorPct}% de probabilidad real (perfil "${riskProfile}") para esos filtros`;
+
   if (!best) {
     return {
       legs: [],
@@ -156,13 +177,26 @@ function runSearch(
       legCount: 0,
       averageEdgePct: 0,
       toleranceMet: false,
-      warning: "No se pudo armar un combo con la cantidad de patas disponibles.",
+      warning: probabilityUnreachable
+        ? `${unreachableFloorNotice}, y tampoco se pudo armar un combo con la cantidad de patas disponibles usando las de mayor probabilidad real.`
+        : "No se pudo armar un combo con la cantidad de patas disponibles.",
     };
   }
 
   const finalOdds = combinedOdds(best.legs);
   const relativeDiff = Math.abs(finalOdds - targetMultiplier) / targetMultiplier;
   const toleranceMet = relativeDiff <= tolerance;
+
+  // Requested probability floor was unreachable: this combo is the highest-real-
+  // probability one that still meets every other requirement (target multiplier, leg
+  // count, edge floor) — say so explicitly rather than silently substituting it, per
+  // CLAUDE.md's "build_combo falls back to the highest achievable probability" note.
+  const probabilityFallbackNotice = probabilityUnreachable
+    ? `${unreachableFloorNotice} — esta es la combinada con la mayor probabilidad real posible que cumple el resto de los requisitos (~${Math.round(averageRealProbability(best.legs) * 100)}% promedio real en las patas elegidas).`
+    : undefined;
+  const toleranceWarning = toleranceMet
+    ? undefined
+    : `No se encontró un combo dentro de ±${Math.round(tolerance * 100)}% del objetivo ${targetMultiplier}x; el más cercano da ${finalOdds.toFixed(2)}x.`;
 
   return {
     legs: best.legs,
@@ -171,9 +205,7 @@ function runSearch(
     averageEdgePct: averageEdge(best.legs),
     averageStatisticalProbability: averageStatisticalProbability(best.legs),
     toleranceMet,
-    warning: toleranceMet
-      ? undefined
-      : `No se encontró un combo dentro de ±${Math.round(tolerance * 100)}% del objetivo ${targetMultiplier}x; el más cercano da ${finalOdds.toFixed(2)}x.`,
+    warning: [probabilityFallbackNotice, toleranceWarning].filter((w): w is string => !!w).join(" ") || undefined,
   };
 }
 
