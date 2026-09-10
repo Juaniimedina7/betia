@@ -107,6 +107,28 @@ interface RawFixtureStatisticsResponse {
 /** How many fixture ids `GET /fixtures?ids=` accepts in one call, per API-Football's own docs. */
 const MAX_IDS_PER_FIXTURES_REQUEST = 20;
 
+/**
+ * API-Football's `errors` field is inconsistently shaped: an empty array `[]` on
+ * success, or a `{key: message}` object on failure (e.g. `{"plan": "Free plans do not
+ * have access to this date, ..."}`) — never checked anywhere in this client until
+ * 2026-09-10, when that silence turned out to hide a real bug: `findFixturesByDate`
+ * requesting a date outside the Free plan's allowed window got back an empty
+ * `response` array indistinguishable from "genuinely no fixtures that day," so 6 of 7
+ * `DAYS_AHEAD` days in poll-api-football-odds/route.ts silently contributed nothing,
+ * every run, for weeks. Returns a human-readable message when there's a real error,
+ * undefined when the response is clean.
+ */
+function extractApiFootballErrors(errors: unknown): string | undefined {
+  if (Array.isArray(errors)) {
+    return errors.length > 0 ? errors.map(String).join("; ") : undefined;
+  }
+  if (errors && typeof errors === "object") {
+    const entries = Object.entries(errors as Record<string, unknown>);
+    return entries.length > 0 ? entries.map(([key, value]) => `${key}: ${value}`).join("; ") : undefined;
+  }
+  return undefined;
+}
+
 /** "Both Teams Score" -> "both_teams_score". Used as the market key inside bookmakerOdds. */
 function slugifyMarketName(name: string): string {
   return name
@@ -276,6 +298,14 @@ export class ApiFootballClient {
    */
   async findFixturesByDate(date: string): Promise<ApiFootballFixtureSummary[]> {
     const fixturesRaw = await this.request<RawFixturesResponse>("/fixtures", { date });
+    const errorMessage = extractApiFootballErrors(fixturesRaw.errors);
+    if (errorMessage) {
+      // Most commonly the Free plan's date-window rejection (see
+      // extractApiFootballErrors' doc comment) — surfacing this as a thrown error lets
+      // poll-api-football-odds/route.ts's existing per-day `dayErrors` catch it, instead
+      // of it looking identical to "genuinely no fixtures that day."
+      throw new ApiFootballError(`API-Football rejected /fixtures?date=${date}: ${errorMessage}`, 200, errorMessage);
+    }
     return fixturesRaw.response.map((entry) => ({
       fixtureId: String(entry.fixture.id),
       leagueId: entry.league.id,

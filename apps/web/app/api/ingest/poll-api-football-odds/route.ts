@@ -4,20 +4,36 @@ import { eq, sql } from "drizzle-orm";
 import { API_FOOTBALL_LEAGUE_IDS, sportKeyForApiFootballLeague } from "@/lib/ingest/api-football-league-map";
 import { matchFixture, type OddsCacheFixtureCandidate } from "@/lib/ingest/fixture-matching";
 
-// How many days ahead of today this route looks — widened from 1 to 7 on 2026-09-08 so
-// fixtures browsed on /odds show enriched markets well before their own "tomorrow";
-// briefly narrowed to 3 the same day when the cron moved to twice/day, then reverted
-// back to 7 (and the cron back to once/day, 13:00 Argentina time, see
-// .github/workflows/poll-odds.yml) later that same day. See CLAUDE.md's "API-Football
-// odds quota" section for the budget math this and MAX_FIXTURES_PER_DAY are based on.
-const DAYS_AHEAD = 7;
+// How many days ahead of today this route looks. Was widened from 1 to 7 on 2026-09-08
+// on the assumption that `GET /fixtures?date=` on the Free plan behaved like the other
+// id-scoped endpoints this client uses (unrestricted for the current season) — that
+// assumption was wrong for THIS endpoint specifically. Confirmed live 2026-09-10: the
+// Free plan rejects `/fixtures?date=` for any date more than ~1 day out with
+// `errors.plan: "Free plans do not have access to this date, try from <today-1> to
+// <today+1>"` — a genuinely different (and narrower) restriction than the
+// current-season-only block on league+season-scoped endpoints documented elsewhere in
+// this client. With DAYS_AHEAD=7, 6 of the 7 requested dates were silently rejected
+// every single run — findFixturesByDate never inspected the response's `errors` field,
+// so a rejected date just looked like "0 fixtures that day" instead of an error,
+// masking the real cause. Net effect for weeks: any watched league whose next match
+// wasn't literally tomorrow (e.g. a whole midweek-only or weekend-only league) got ZERO
+// API-Football coverage, ever — build_combo/get_best_price silently fell back to
+// whatever pre-migration The Odds API data was still sitting in that fixture's
+// odds_cache row (days stale, sometimes over a week). findFixturesByDate now throws on
+// a rejected date (surfaces through this route's existing per-day `dayErrors`, see the
+// loop below) instead of swallowing it, and DAYS_AHEAD is cut to the one day that's
+// actually ever in-window. Re-verify the plan's window live before raising this again —
+// don't just assume the docs (or this comment) still hold.
+const DAYS_AHEAD = 1;
 
 // Defensive per-day cap on how many per-fixture /odds calls one run makes — a
 // pathological day (e.g. a Champions League matchday with many simultaneous kickoffs
 // across our watched competitions) shouldn't be able to blow the 100/day Free-plan
-// budget across the whole DAYS_AHEAD window in one run. Worst case with DAYS_AHEAD=7
-// and 1 run/day: 7 x (1 discovery + 12 fixtures) = 91 requests/day, under the 100/day
-// cap (with little headroom for manual workflow_dispatch runs the same day).
+// budget in one run. Confirmed live 2026-09-10 against a real day: only 9 fixtures
+// across all 13 watched leagues combined, well under this cap — 12 has real headroom,
+// not just theoretical. Worst case now (DAYS_AHEAD=1, 1 run/day): 1 x (1 discovery + 12
+// fixtures) = 13 requests/day, far under the 100/day cap (redo this math before raising
+// DAYS_AHEAD or this cap).
 const MAX_FIXTURES_PER_DAY = 12;
 
 const WATCHED_LEAGUE_IDS = new Set(Object.values(API_FOOTBALL_LEAGUE_IDS));
@@ -39,7 +55,16 @@ const WATCHED_LEAGUE_IDS = new Set(Object.values(API_FOOTBALL_LEAGUE_IDS));
 // apps/web/lib/bookmaker-links.ts needed new entries for the af: forms too. Coverage
 // per fixture isn't guaranteed for either (see CLAUDE.md's "coverage isn't uniform"
 // caveat), so a fixture with neither posted is unaffected.
-const DEFAULT_API_FOOTBALL_BOOKMAKERS = ["bet365", "1xbet", "betano", "betsson"];
+// "pinnacle" added 2026-09-10 — NOT a bettable addition (Pinnacle isn't offered to this
+// platform's Argentina-focused users). It exists purely so combo-engine's de-vig math
+// has a sharp, low-vig reference for soccer again — since this migration, the only
+// other bookmakers here are retail books, and a median across a handful of those
+// doesn't recover a fair price (confirmed live: every outcome of a real match came back
+// meaningfully negative-edge against a retail-only median). `REFERENCE_ONLY_BOOKMAKER_KEYS`
+// in packages/combo-engine/src/fair-odds.ts keeps `af:pinnacle` out of `bestPrice`
+// (never selectable as the actual leg price) and get-odds.ts strips it from anything
+// shown to the website/agent — it only ever feeds the reference-price calculation.
+const DEFAULT_API_FOOTBALL_BOOKMAKERS = ["bet365", "1xbet", "betano", "betsson", "pinnacle"];
 
 // Since 2026-09-08 this is the ONLY source of soccer odds — The Odds API no longer
 // polls any soccer sport_key at all (see watched-sport-keys.ts and CLAUDE.md's
