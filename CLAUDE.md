@@ -418,6 +418,37 @@ If quota ever gets tight, the account holder has already said they're open to th
 plan ($19/mo, 7,500/day) — free tier is enough for this integration's current scope, so
 there was no reason to start there.
 
+### DAYS_AHEAD's real constraint is a date window, not just quota (2026-09-10)
+
+**Confirmed live: `GET /fixtures?date=` on the Free plan rejects any date more than ~1
+day from today** (`errors.plan: "Free plans do not have access to this date, try from
+<today-1> to <today+1>"`) — a narrower, separate restriction from the current-season
+block on league+season-scoped endpoints (see the top-level "Highlightly quota" →
+API-Football history above). `findFixturesByDate` never inspected the response's
+`errors` field, so a rejected date looked identical to "0 fixtures that day" — with
+`DAYS_AHEAD = 7`, 6 of the 7 requested dates were silently rejected on every single run,
+for weeks. Net effect: any watched league whose next match wasn't literally tomorrow got
+**zero** real API-Football coverage, ever — `build_combo`/`get_best_price` silently fell
+back to whatever pre-migration The Odds API data (or an earlier lucky API-Football run)
+was still sitting in that fixture's `odds_cache` row, sometimes days stale. This is what
+was actually happening when a user asked for a combo 2-3 days out and got an
+empty/near-empty result: the probability floor (see the `minProbability` section above)
+made it worse, but this date-window gap is why there was so little real data to filter
+in the first place.
+
+Fixed same-day (commit `1e3e541`): `findFixturesByDate` now throws on a rejected date
+instead of swallowing it (surfaced through this route's existing per-day `dayErrors`),
+and `DAYS_AHEAD` was cut to `1` for a few hours — the one day that was ever actually
+in-window on the Free plan. **Raised back to `DAYS_AHEAD = 7` later the same day**,
+specifically because the account holder committed to upgrading to the Pro plan ($19/mo)
+to lift this date restriction — **not yet confirmed live against a real Pro-plan key**.
+Until that upgrade actually lands, every date beyond `<today+1>` will keep coming back
+as a visible `errors.plan` rejection in `dayErrors` (a loud failure now, not the old
+silent data gap) rather than real fixtures. **Re-verify live the day the account
+actually moves to Pro**: confirm the rejection is gone for `<today+2>` onward specifically,
+don't just assume a quota bump also lifted the date window — the Free plan's docs never
+mentioned this restriction either, so Pro's docs shouldn't be trusted blindly here.
+
 ### Explicitly out of scope for this integration (see grading note above too)
 
 - **Settlement/grading** for non-h2h legs was not built — see the note above.

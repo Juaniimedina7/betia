@@ -4,36 +4,38 @@ import { eq, sql } from "drizzle-orm";
 import { API_FOOTBALL_LEAGUE_IDS, sportKeyForApiFootballLeague } from "@/lib/ingest/api-football-league-map";
 import { matchFixture, type OddsCacheFixtureCandidate } from "@/lib/ingest/fixture-matching";
 
-// How many days ahead of today this route looks. Was widened from 1 to 7 on 2026-09-08
-// on the assumption that `GET /fixtures?date=` on the Free plan behaved like the other
-// id-scoped endpoints this client uses (unrestricted for the current season) — that
-// assumption was wrong for THIS endpoint specifically. Confirmed live 2026-09-10: the
-// Free plan rejects `/fixtures?date=` for any date more than ~1 day out with
+// How many days ahead of today this route looks. Confirmed live 2026-09-10: the Free
+// plan rejects `GET /fixtures?date=` for any date more than ~1 day out with
 // `errors.plan: "Free plans do not have access to this date, try from <today-1> to
 // <today+1>"` — a genuinely different (and narrower) restriction than the
 // current-season-only block on league+season-scoped endpoints documented elsewhere in
-// this client. With DAYS_AHEAD=7, 6 of the 7 requested dates were silently rejected
-// every single run — findFixturesByDate never inspected the response's `errors` field,
-// so a rejected date just looked like "0 fixtures that day" instead of an error,
-// masking the real cause. Net effect for weeks: any watched league whose next match
-// wasn't literally tomorrow (e.g. a whole midweek-only or weekend-only league) got ZERO
-// API-Football coverage, ever — build_combo/get_best_price silently fell back to
-// whatever pre-migration The Odds API data was still sitting in that fixture's
-// odds_cache row (days stale, sometimes over a week). findFixturesByDate now throws on
-// a rejected date (surfaces through this route's existing per-day `dayErrors`, see the
-// loop below) instead of swallowing it, and DAYS_AHEAD is cut to the one day that's
-// actually ever in-window. Re-verify the plan's window live before raising this again —
-// don't just assume the docs (or this comment) still hold.
-const DAYS_AHEAD = 1;
+// this client. That's what forced DAYS_AHEAD down to 1 for a few hours the same day
+// (commit 1e3e541) — with it at 7, 6 of the 7 requested dates came back rejected every
+// run, and findFixturesByDate silently treated a rejected date as "0 fixtures that day"
+// (now fixed: it throws, surfaced through this route's per-day `dayErrors`, see the
+// loop below).
+//
+// Raised back to 7 the same day once the account holder committed to upgrading to the
+// Pro plan ($19/mo, see CLAUDE.md) specifically to lift this — **not yet confirmed
+// live against a Pro-plan key**. Until the upgrade actually lands, every date beyond
+// `<today+1>` will keep coming back as an `errors.plan` rejection in `dayErrors` (a
+// visible failure, not silent data loss — build_combo/get_best_price still fall back to
+// whatever's already cached for those fixtures). Re-verify live the day the account
+// actually moves to Pro: confirm the rejection is really gone for `<today+2>` onward,
+// not just that quota went up — the Free-plan docs never mentioned this date window
+// either, so don't assume Pro's docs are complete here.
+const DAYS_AHEAD = 7;
 
 // Defensive per-day cap on how many per-fixture /odds calls one run makes — a
 // pathological day (e.g. a Champions League matchday with many simultaneous kickoffs
-// across our watched competitions) shouldn't be able to blow the 100/day Free-plan
-// budget in one run. Confirmed live 2026-09-10 against a real day: only 9 fixtures
-// across all 13 watched leagues combined, well under this cap — 12 has real headroom,
-// not just theoretical. Worst case now (DAYS_AHEAD=1, 1 run/day): 1 x (1 discovery + 12
-// fixtures) = 13 requests/day, far under the 100/day cap (redo this math before raising
-// DAYS_AHEAD or this cap).
+// across our watched competitions) shouldn't be able to blow the daily budget in one
+// run. Confirmed live 2026-09-10 against a single real day: only 9 fixtures across all
+// 13 watched leagues combined, well under this cap. Worst case at DAYS_AHEAD=7, 1
+// run/day: 1 x 7 x (1 discovery + 12 fixtures) = 91 requests/day — over the Free plan's
+// 100/day cap with little headroom (and the Free plan rejects 6 of those 7 days outright
+// anyway, per the comment above, so the realistic Free-plan cost is far lower); comfortably
+// under the Pro plan's 7,500/day once that upgrade is live. Redo this math before raising
+// DAYS_AHEAD or this cap further.
 const MAX_FIXTURES_PER_DAY = 12;
 
 const WATCHED_LEAGUE_IDS = new Set(Object.values(API_FOOTBALL_LEAGUE_IDS));
