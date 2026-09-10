@@ -11,15 +11,14 @@ const MIN_EDGE_PCT_BY_PROFILE: Record<RiskProfile, number> = {
  * +33% edge used to pass the old edge-only floor despite having almost no real chance of
  * hitting. Require a high chance of actually happening too.
  *
- * Confirmed live against real cached odds (2026-09-05): legs with >=80% market-implied
- * probability (i.e. clear favorites) essentially never clear positive edge (max observed
- * was -0.31%) — heavy favorites are priced efficiently enough that there's no room left
- * for +EV after the bookmaker's vig. A >=5% edge floor on top of the probability floor
- * would make "conservative" return empty almost always; 0% (still +EV, just not
- * "high-edge") is the loosest floor that stays honest about never recommending a
- * knowingly -EV pick as "safe."
+ * All profiles now enforce a probability floor to prevent returning extreme longshots
+ * like "miss a penalty" that have positive edge but almost zero real chance of hitting.
  */
-const MIN_PROBABILITY_CONSERVATIVE = 0.8;
+const MIN_PROBABILITY_BY_PROFILE: Record<RiskProfile, number> = {
+  conservative: 0.8, // 80% chance or more (odds <= 1.25)
+  balanced: 0.25,    // 25% chance or more (odds <= 4.0)
+  aggressive: 0.05,  // 5% chance or more (odds <= 20.0)
+};
 
 /** Real chance of hitting: prefers the Poisson-model `statisticalProbability` when
  * available, falling back to the market-implied (de-vigged) `fairProbability` — same
@@ -53,11 +52,13 @@ export function rankByConfidence(legs: CandidateLeg[]): CandidateLeg[] {
 export function filterByRiskProfile(
   legs: CandidateLeg[],
   riskProfile: RiskProfile = "balanced",
+  minProbability?: number,
 ): CandidateLeg[] {
-  const floor = MIN_EDGE_PCT_BY_PROFILE[riskProfile];
+  const edgeFloor = MIN_EDGE_PCT_BY_PROFILE[riskProfile];
+  const probFloor = minProbability !== undefined ? minProbability : MIN_PROBABILITY_BY_PROFILE[riskProfile];
   return legs.filter((leg) => {
-    if (leg.edgePct < floor) return false;
-    if (riskProfile === "conservative" && bestProbabilityEstimate(leg) < MIN_PROBABILITY_CONSERVATIVE) return false;
+    if (leg.edgePct < edgeFloor) return false;
+    if (bestProbabilityEstimate(leg) < probFloor) return false;
     return true;
   });
 }

@@ -106,6 +106,7 @@ function runSearch(
         conflictKey,
       ),
       riskProfile,
+      constraints.minProbability,
     ),
   );
 

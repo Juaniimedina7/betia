@@ -68,6 +68,14 @@ export const buildComboInput = z.object({
     .describe(
       "Risk profile for leg selection. 'conservative' = still +EV (edge >=0%) AND >=80% real chance of hitting (low-variance, high-confidence picks). 'balanced' (default) = edge >= -3%, no probability floor. 'aggressive' = edge >= -8%, no probability floor. Map the user's requested risk level (e.g. Spanish 'perfil conservador/moderado/agresivo', 'seguro', 'arriesgado') onto this — don't leave it unset if the user expressed a risk preference, since omitting it silently defaults to 'balanced'.",
     ),
+  minProbability: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .describe(
+      "Explicit minimum probability floor (0.0 to 1.0) for every leg in the combo. Use this if the user asks for a specific probability minimum, e.g., '60% de probabilidad' -> 0.60. Overrides the default floor from the riskProfile.",
+    ),
   tolerance: z.number().min(0).max(1).optional(),
 });
 
@@ -219,6 +227,7 @@ export async function buildComboTool(input: BuildComboInput): Promise<ComboResul
     maxLegs: input.maxLegs,
     excludeFixtureIds: input.excludeFixtureIds,
     riskProfile: input.riskProfile,
+    minProbability: input.minProbability,
     tolerance: input.tolerance,
   };
 
@@ -311,6 +320,7 @@ async function buildSameMatchComboTool(input: BuildComboInput, fixtureId: string
     minLegs: input.minLegs,
     maxLegs: input.maxLegs,
     riskProfile: input.riskProfile,
+    minProbability: input.minProbability,
     tolerance: input.tolerance,
   };
 
