@@ -14,6 +14,7 @@ import { z } from "zod";
 import { hasFixtureStarted, notStartedCondition } from "../fixture-time";
 import { resolveByName } from "../fuzzy-match";
 import { estimateMatchProbabilitiesBatch, fixtureKey, type StatisticalProbabilityResult } from "../statistical-probability";
+import { resolveSportGroup } from "./list-sports";
 
 const MAX_SPORT_KEYS = 20;
 
@@ -215,25 +216,44 @@ function compareComboResults(a: ComboResult, b: ComboResult, targetMultiplier?: 
   return b.averageEdgePct - a.averageEdgePct;
 }
 
-async function resolveSportKeys(input: BuildComboInput): Promise<string[]> {
+/** `sportKeys` result plus an optional reason for why it came back empty — lets the
+ * caller distinguish "this sport name didn't resolve at all" (a parameter problem, see
+ * resolveSportGroup's docstring) from "resolved fine, just nothing cached" (a data
+ * problem), which otherwise look identical to whoever's debugging an empty result. */
+async function resolveSportKeys(input: BuildComboInput): Promise<{ sportKeys: string[]; warning?: string }> {
   if (input.sportKeys && input.sportKeys.length > 0) {
-    return input.sportKeys.slice(0, MAX_SPORT_KEYS);
+    return { sportKeys: input.sportKeys.slice(0, MAX_SPORT_KEYS) };
   }
 
   if (input.sports && input.sports.length > 0) {
     const db = getDb();
+    const allGroupRows = await db.selectDistinct({ group: sportsCache.group }).from(sportsCache);
+    const availableGroups = allGroupRows.map((r) => r.group);
+
+    const resolvedGroups = [
+      ...new Set(input.sports.map((s) => resolveSportGroup(s, availableGroups)).filter((g): g is string => g !== undefined)),
+    ];
+    if (resolvedGroups.length === 0) {
+      return {
+        sportKeys: [],
+        warning: `No reconocemos "${input.sports.join(", ")}" como deporte — los disponibles son: ${availableGroups.join(", ") || "ninguno"}.`,
+      };
+    }
+
     const groupRows = await db
       .select({ sportKey: sportsCache.sportKey })
       .from(sportsCache)
-      .where(inArray(sportsCache.group, input.sports));
+      .where(inArray(sportsCache.group, resolvedGroups));
     const sportKeysInGroup = groupRows.map((r) => r.sportKey);
-    if (sportKeysInGroup.length === 0) return [];
+    if (sportKeysInGroup.length === 0) {
+      return { sportKeys: [], warning: `No hay torneos cacheados para "${resolvedGroups.join(", ")}".` };
+    }
 
     const cachedRows = await db
       .selectDistinct({ sportKey: oddsCache.sportKey })
       .from(oddsCache)
       .where(and(inArray(oddsCache.sportKey, sportKeysInGroup), isNotNull(oddsCache.bookmakerOdds)));
-    return cachedRows.map((r) => r.sportKey).slice(0, MAX_SPORT_KEYS);
+    return { sportKeys: cachedRows.map((r) => r.sportKey).slice(0, MAX_SPORT_KEYS) };
   }
 
   throw new Error(
@@ -260,9 +280,9 @@ export async function buildComboTool(input: BuildComboInput): Promise<ComboResul
     return { ...result, disclaimer: SAME_MATCH_DISCLAIMER };
   }
 
-  const sportKeys = await resolveSportKeys(input);
+  const { sportKeys, warning: sportKeysWarning } = await resolveSportKeys(input);
   if (sportKeys.length === 0) {
-    return emptyResult("No se encontraron torneos para los filtros dados.");
+    return emptyResult(sportKeysWarning ?? "No se encontraron torneos para los filtros dados.");
   }
 
   const events = await readCachedEvents(sportKeys, input.from, input.to);

@@ -654,6 +654,33 @@ parlay-agent.ts` was updated to expect this implicit default and proactively off
 lowering `minProbability` (or switching to `"aggressive"`, 5%) the same way it already
 offered switching risk profiles for edge alone.
 
+## build_combo's `sports` param silently failed on anything but the exact literal group name (2026-09-10)
+
+**Diagnosed live from a real agent conversation**: a user asked for a generic "fútbol,
+esta semana, 70% de probabilidad" combo and got an empty result on every single retry —
+lower probability, no date filter, more legs allowed, nothing worked. Direct testing
+against production data with the exact same filters (`sports: ["Soccer"]`) found real
+combos immediately, which pointed at the parameter itself rather than the data:
+`resolveSportKeys` in `build-combo.ts` matched `input.sports` against
+`sports_cache.group` with an exact, case-sensitive `inArray` — passing `"soccer"`
+(lowercase), `"Fútbol"`, or `"Futbol"` (the Spanish name `list_sports` itself returns
+as `name`, see `SPANISH_GROUP_NAMES` in `list-sports.ts`) all silently returned zero
+sport_keys, indistinguishable from "no cached data" to whoever's debugging it — the
+warning message and behavior looked identical no matter what date/probability filter
+was changed afterward, which is exactly the dead end that conversation hit.
+
+Fixed by adding `resolveSportGroup` (`list-sports.ts`, exported alongside
+`SPANISH_GROUP_NAMES`): tries `resolveByName` (case/accent-insensitive, see
+`fuzzy-match.ts`) against the real group values first, then against their Spanish
+names, mapping back to the canonical group. `resolveSportKeys` now returns
+`{ sportKeys, warning? }` instead of a bare array, so a sport name that fails to
+resolve at all produces its own explicit warning (`No reconocemos "X" como deporte —
+los disponibles son: ...`) distinct from "resolved fine, just nothing cached for it" —
+the two used to look identical. This only covers `sports` (the group-name path);
+`sportKeys` (literal sport_key strings like `soccer_epl`) is unaffected and still has
+no fuzzy resolution — passing a wrong one there still silently returns nothing, since a
+sport_key isn't a name a user would ever type by hand the way a sport group is.
+
 ## Highlightly quota (2026-08-31)
 
 Second external data source, added for statistical (Poisson-model) win/draw/loss

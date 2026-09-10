@@ -1,6 +1,7 @@
 import { getDb, sportsCache } from "@bet/db";
 import { inArray } from "drizzle-orm";
 import { z } from "zod";
+import { resolveByName } from "../fuzzy-match";
 
 export const listSportsInput = z.object({});
 
@@ -13,12 +14,35 @@ export interface SportGroup {
 
 // Product scope (2026-09-03): the four sport groups actually behind odds_cache — see
 // watched-sport-keys.ts. Order here is display order in list_sports' response.
-const SPANISH_GROUP_NAMES: Record<string, string> = {
+export const SPANISH_GROUP_NAMES: Record<string, string> = {
   Soccer: "Fútbol",
   Basketball: "Básquet",
   "American Football": "NFL",
   Tennis: "Tenis",
 };
+
+/**
+ * Resolves a caller-given sport name (English group value like "Soccer", a casing
+ * variant like "soccer", or its Spanish display name like "Fútbol"/"futbol") to the
+ * literal `sports_cache.group` string other tools (build_combo's `sports` param) match
+ * against exactly. Found necessary 2026-09-10: `build_combo`'s old exact-match-only
+ * lookup silently returned "no torneos encontrados" for ANY casing/language mismatch —
+ * indistinguishable from genuinely having no cached data for that sport, which made a
+ * real agent conversation look like a data outage when it was actually just an
+ * unresolved sport name (confirmed live: "soccer"/"Fútbol"/"Futbol" all failed while the
+ * literal "Soccer" succeeded, against identical cached data).
+ */
+export function resolveSportGroup(input: string, availableGroups: string[]): string | undefined {
+  const direct = resolveByName(input, availableGroups);
+  if (direct) return direct;
+
+  const spanishEntries = Object.entries(SPANISH_GROUP_NAMES).filter(([group]) => availableGroups.includes(group));
+  const matchedSpanish = resolveByName(
+    input,
+    spanishEntries.map(([, es]) => es),
+  );
+  return spanishEntries.find(([, es]) => es === matchedSpanish)?.[0];
+}
 
 /**
  * DB-only read of sports_cache, which /api/ingest/poll refreshes every run — no live
