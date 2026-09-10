@@ -54,6 +54,15 @@ function referencePrices(bookmakerOdds: BookmakerOdds, marketId: string): Record
 /** Multiplicative de-vig: normalizes implied probabilities so they sum to 1. */
 function deVig(prices: Record<string, number>): Record<string, number> {
   const implied = Object.entries(prices).map(([key, price]) => [key, 1 / price] as const);
+  
+  // If there's only one outcome (e.g. a single-sided "Yes" prop), we can't calculate
+  // the overround because the other side of the market is missing. Returning it as-is
+  // prevents it from incorrectly being normalized to 100% fair probability.
+  if (implied.length === 1) {
+    const [[key, p]] = implied;
+    return { [key!]: p! };
+  }
+
   const overround = implied.reduce((sum, [, p]) => sum + p, 0);
   if (overround <= 0) return {};
   return Object.fromEntries(implied.map(([key, p]) => [key, p / overround]));
