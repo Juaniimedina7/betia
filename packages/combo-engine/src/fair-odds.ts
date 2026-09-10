@@ -124,22 +124,6 @@ export function extractCandidateLegs(events: Event[], options: ExtractCandidateL
       // The user explicitly banned "miss a penalty" and similar obscure penalty props
       // because they derail standard combo building.
       if (marketId.includes("penalty")) continue;
-      
-      // Also banned highly specific match-flow props (like "lose first half, win match")
-      // because their high variance results in unrealistic recommendations.
-      if (
-        [
-          "ht_ft_double",
-          "win_both_halves",
-          "home_win_both_halves",
-          "away_win_both_halves",
-          "to_win_from_behind",
-          "home_come_from_behind_and_win",
-          "away_come_from_behind_and_win",
-        ].includes(marketId)
-      ) {
-        continue;
-      }
 
       const refPrices = referencePrices(event.bookmakerOdds, marketId);
       const fairProbabilities = deVig(refPrices);
