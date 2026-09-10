@@ -2,7 +2,7 @@ import { getDb, oddsCache } from "@bet/db";
 import { and, gte, inArray, isNotNull, lte } from "drizzle-orm";
 import { z } from "zod";
 import { notStartedCondition } from "../fixture-time";
-import type { FixtureSummary } from "./list-fixtures";
+import type { BookmakerOdds } from "@bet/odds-api-client";
 
 export const getOddsByTournamentInput = z.object({
   sportKeys: z.array(z.string()).min(1),
@@ -23,6 +23,16 @@ export type GetOddsByTournamentInput = z.infer<typeof getOddsByTournamentInput>;
  * `bookmaker` param (cached rows already carry whichever bookmakers /api/ingest/poll
  * chose; there's nothing to filter to a single book here).
  */
+export interface TournamentOddsSummary {
+  fixtureId: string;
+  sportKey: string;
+  tournamentId: string;
+  homeTeam?: string;
+  awayTeam?: string;
+  startTime: string;
+  bookmakerOdds: BookmakerOdds;
+}
+
 export async function getOddsByTournament(input: GetOddsByTournamentInput) {
   const db = getDb();
   const conditions = [inArray(oddsCache.sportKey, input.sportKeys), isNotNull(oddsCache.bookmakerOdds), notStartedCondition()];
@@ -33,14 +43,14 @@ export async function getOddsByTournament(input: GetOddsByTournamentInput) {
     .from(oddsCache)
     .where(and(...conditions));
 
-  const fixtures: FixtureSummary[] = rows.map((r) => ({
+  const fixtures: TournamentOddsSummary[] = rows.map((r) => ({
     fixtureId: r.eventId,
     sportKey: r.sportKey,
     tournamentId: r.sportKey,
     homeTeam: r.homeTeam ?? undefined,
     awayTeam: r.awayTeam ?? undefined,
     startTime: (r.commenceTime ?? r.updatedAt).toISOString(),
-    bookmakerOdds: r.bookmakerOdds as FixtureSummary["bookmakerOdds"],
+    bookmakerOdds: r.bookmakerOdds as BookmakerOdds,
   }));
 
   return { fixtures };
