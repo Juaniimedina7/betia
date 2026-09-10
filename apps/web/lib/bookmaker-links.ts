@@ -22,8 +22,8 @@ export const BOOKMAKER_URLS: Record<string, string> = {
   codere_it: "https://www.codere.bet.ar",
   betsson: "https://www.betsson.bet.ar",
   betway: "https://betway.com",
-  "af:bet365": "https://www.bet365.com",
-  "af:1xbet": "https://1xbet.com",
+  "af:bet365": "https://www.bet365.bet.ar",
+  "af:1xbet": "https://1xbet.bet.ar",
   "af:betano": "https://www.betano.bet.ar",
   "af:betsson": "https://www.betsson.bet.ar",
 };
@@ -46,7 +46,20 @@ export const BOOKMAKER_NAMES: Record<string, string> = {
  * exists, otherwise the bookmaker's sportsbook homepage.
  */
 export function resolveBookmakerLink(deepLink?: string | null, bookmakerKey?: string): string | undefined {
-  if (deepLink) return deepLink;
+  let link = deepLink;
+  
+  // APIs typically return global .com deep links, which are DNS-blocked by ISPs in 
+  // Argentina. Rewrite them to the local regulated .bet.ar domains.
+  if (link) {
+    if (link.includes("bet365.com")) link = link.replace("bet365.com", "bet365.bet.ar");
+    if (link.includes("1xbet.com")) link = link.replace("1xbet.com", "1xbet.bet.ar");
+    if (link.includes("betano.com")) link = link.replace("betano.com", "betano.bet.ar");
+    if (link.includes("betsson.com")) link = link.replace("betsson.com", "betsson.bet.ar");
+    if (link.includes("codere.es") || link.includes("codere.com")) link = link.replace(/codere\.(es|com)/, "codere.bet.ar");
+    
+    return link;
+  }
+  
   if (bookmakerKey) return BOOKMAKER_URLS[bookmakerKey.toLowerCase()];
   return undefined;
 }
