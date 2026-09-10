@@ -59,8 +59,8 @@ function deVig(prices: Record<string, number>): Record<string, number> {
   // the overround because the other side of the market is missing. Returning it as-is
   // prevents it from incorrectly being normalized to 100% fair probability.
   if (implied.length === 1) {
-    const [[key, p]] = implied;
-    return { [key!]: p! };
+    const single = implied[0]!;
+    return { [single[0]]: single[1] };
   }
 
   const overround = implied.reduce((sum, [, p]) => sum + p, 0);
