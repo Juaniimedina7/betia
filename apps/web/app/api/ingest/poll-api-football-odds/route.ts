@@ -15,27 +15,30 @@ import { matchFixture, type OddsCacheFixtureCandidate } from "@/lib/ingest/fixtu
 // (now fixed: it throws, surfaced through this route's per-day `dayErrors`, see the
 // loop below).
 //
-// Raised back to 7 the same day once the account holder committed to upgrading to the
-// Pro plan ($19/mo, see CLAUDE.md) specifically to lift this — **not yet confirmed
-// live against a Pro-plan key**. Until the upgrade actually lands, every date beyond
+// Raised to 5 the same day once the account holder committed to upgrading to the Pro
+// plan ($19/mo, see CLAUDE.md) specifically to lift this — **not yet confirmed live
+// against a Pro-plan key**. Until the upgrade actually lands, every date beyond
 // `<today+1>` will keep coming back as an `errors.plan` rejection in `dayErrors` (a
 // visible failure, not silent data loss — build_combo/get_best_price still fall back to
-// whatever's already cached for those fixtures). Re-verify live the day the account
-// actually moves to Pro: confirm the rejection is really gone for `<today+2>` onward,
-// not just that quota went up — the Free-plan docs never mentioned this date window
-// either, so don't assume Pro's docs are complete here.
-const DAYS_AHEAD = 7;
+// whatever's already cached for those fixtures), and 5 rather than 7 keeps the
+// worst-case request count under the Free plan's 100/day cap in the meantime (see
+// MAX_FIXTURES_PER_DAY below) instead of relying entirely on the date-window rejections
+// to hold the number down. Re-verify live the day the account actually moves to Pro:
+// confirm the rejection is really gone for `<today+2>` onward, not just that quota went
+// up — the Free-plan docs never mentioned this date window either, so don't assume
+// Pro's docs are complete here.
+const DAYS_AHEAD = 5;
 
 // Defensive per-day cap on how many per-fixture /odds calls one run makes — a
 // pathological day (e.g. a Champions League matchday with many simultaneous kickoffs
 // across our watched competitions) shouldn't be able to blow the daily budget in one
 // run. Confirmed live 2026-09-10 against a single real day: only 9 fixtures across all
-// 13 watched leagues combined, well under this cap. Worst case at DAYS_AHEAD=7, 1
-// run/day: 1 x 7 x (1 discovery + 12 fixtures) = 91 requests/day — over the Free plan's
-// 100/day cap with little headroom (and the Free plan rejects 6 of those 7 days outright
-// anyway, per the comment above, so the realistic Free-plan cost is far lower); comfortably
-// under the Pro plan's 7,500/day once that upgrade is live. Redo this math before raising
-// DAYS_AHEAD or this cap further.
+// 13 watched leagues combined, well under this cap. Worst case at DAYS_AHEAD=5, 1
+// run/day: 1 x 5 x (1 discovery + 12 fixtures) = 65 requests/day — under the Free plan's
+// 100/day cap even before the date-window rejections above kick in (those rejections
+// make the realistic Free-plan cost far lower still); comfortably under the Pro plan's
+// 7,500/day once that upgrade is live. Redo this math before raising DAYS_AHEAD or this
+// cap further.
 const MAX_FIXTURES_PER_DAY = 12;
 
 const WATCHED_LEAGUE_IDS = new Set(Object.values(API_FOOTBALL_LEAGUE_IDS));

@@ -439,13 +439,17 @@ in the first place.
 Fixed same-day (commit `1e3e541`): `findFixturesByDate` now throws on a rejected date
 instead of swallowing it (surfaced through this route's existing per-day `dayErrors`),
 and `DAYS_AHEAD` was cut to `1` for a few hours — the one day that was ever actually
-in-window on the Free plan. **Raised back to `DAYS_AHEAD = 7` later the same day**,
-specifically because the account holder committed to upgrading to the Pro plan ($19/mo)
-to lift this date restriction — **not yet confirmed live against a real Pro-plan key**.
-Until that upgrade actually lands, every date beyond `<today+1>` will keep coming back
-as a visible `errors.plan` rejection in `dayErrors` (a loud failure now, not the old
-silent data gap) rather than real fixtures. **Re-verify live the day the account
-actually moves to Pro**: confirm the rejection is gone for `<today+2>` onward specifically,
+in-window on the Free plan. **Raised to `DAYS_AHEAD = 5` later the same day**
+(briefly set to `7` first, then brought down to `5`), specifically because the account
+holder committed to upgrading to the Pro plan ($19/mo) to lift this date restriction —
+**not yet confirmed live against a real Pro-plan key**. `5` rather than `7` was picked so
+the worst case (`1 run/day × 5 × (1 + MAX_FIXTURES_PER_DAY=12) = 65` requests/day) stays
+under the Free plan's 100/day cap on its own, without leaning on the date-window
+rejections to hold the number down. Until the Pro upgrade actually lands, every date
+beyond `<today+1>` will keep coming back as a visible `errors.plan` rejection in
+`dayErrors` (a loud failure now, not the old silent data gap) rather than real fixtures.
+**Re-verify live the day the account actually moves to Pro**: confirm the rejection is
+gone for `<today+2>` onward specifically,
 don't just assume a quota bump also lifted the date window — the Free plan's docs never
 mentioned this restriction either, so Pro's docs shouldn't be trusted blindly here.
 
