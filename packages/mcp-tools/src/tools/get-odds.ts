@@ -1,9 +1,24 @@
 import { getDb, oddsCache } from "@bet/db";
+import { REFERENCE_ONLY_BOOKMAKER_KEYS } from "@bet/combo-engine";
 import { RedisOddsCache, type BookmakerOdds, type BookmakerQuote } from "@bet/odds-api-client";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { hasFixtureStarted } from "../fixture-time";
 import { marketLabel, outcomeLabel } from "../market-labels";
+
+/** Drops bookmaker keys that only exist to anchor build_combo/get_best_price's de-vig
+ * reference price (e.g. `af:pinnacle` — see REFERENCE_ONLY_BOOKMAKER_KEYS in
+ * @bet/combo-engine) before odds ever reach the website or the agent. Pinnacle isn't
+ * offered to this platform's users as a bettable book, so it must never show up in the
+ * live odds table or a `get_odds` reply as if it were a normal option. */
+function omitReferenceOnlyBookmakers(bookmakerOdds: BookmakerOdds): BookmakerOdds {
+  const result: BookmakerOdds = {};
+  for (const [key, book] of Object.entries(bookmakerOdds)) {
+    if (REFERENCE_ONLY_BOOKMAKER_KEYS.has(key.toLowerCase())) continue;
+    result[key] = book;
+  }
+  return result;
+}
 
 export const getOddsInput = z.object({
   fixtureId: z.string(),
@@ -38,13 +53,14 @@ export async function getOdds(input: GetOddsInput) {
     const cached = await cache.getFixtureOdds(input.fixtureId);
     if (cached) {
       const context = await getFixtureContext(input.fixtureId);
+      const bookmakerOdds = omitReferenceOnlyBookmakers(cached);
       return {
         fixtureId: input.fixtureId,
-        bookmakerOdds: cached,
+        bookmakerOdds,
         source: "redis" as const,
         cachedAt: undefined as string | undefined,
         matchup: context,
-        marketCatalog: buildMarketCatalog(cached, context),
+        marketCatalog: buildMarketCatalog(bookmakerOdds, context),
       };
     }
   } catch {
@@ -53,13 +69,14 @@ export async function getOdds(input: GetOddsInput) {
 
   const backup = await readCachedOdds(input.fixtureId);
   if (backup?.bookmakerOdds) {
+    const bookmakerOdds = omitReferenceOnlyBookmakers(backup.bookmakerOdds);
     return {
       fixtureId: input.fixtureId,
-      bookmakerOdds: backup.bookmakerOdds,
+      bookmakerOdds,
       source: "db-cache" as const,
       cachedAt: backup.cachedAt,
       matchup: backup.matchup,
-      marketCatalog: buildMarketCatalog(backup.bookmakerOdds, backup.matchup),
+      marketCatalog: buildMarketCatalog(bookmakerOdds, backup.matchup),
     };
   }
   if (backup?.matchup) {

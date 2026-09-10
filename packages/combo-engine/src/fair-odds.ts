@@ -1,7 +1,24 @@
 import type { BookmakerOdds, Event, OutcomeQuote } from "@bet/odds-api-client";
 import type { CandidateLeg } from "./types";
 
-const PINNACLE_KEYS = ["pinnacle", "pinnacle.com"];
+const PINNACLE_KEYS = ["pinnacle", "pinnacle.com", "af:pinnacle"];
+
+/**
+ * Bookmaker keys that exist in `bookmakerOdds` purely to anchor the de-vig reference
+ * price — never eligible to be picked as the actual price a leg quotes. `af:pinnacle`
+ * is API-Football's Pinnacle feed, added 2026-09-10 specifically so soccer (which since
+ * the 2026-09-08 "eliminar The Odds API de futbol" migration only has retail books —
+ * bet365/1xbet/betano/betsson — as bettable options) still gets a sharp, low-vig
+ * reference for its de-vig math; a median across 2-4 retail books all carrying their
+ * own ~5%+ overround does NOT recover a fair price the way Pinnacle's line does
+ * (confirmed live 2026-09-10: every outcome of a real cached match came back
+ * meaningfully negative-edge against a retail-only median). Pinnacle isn't offered to
+ * this platform's (Argentina-focused) users as a bettable book, so it must never be
+ * selectable via `bestPrice` below, regardless of whether a caller explicitly asks for
+ * it by name — see also the exclusion in get-odds.ts, which keeps it out of the raw
+ * odds shown on the website/agent so it's never presented as "somewhere you can bet."
+ */
+export const REFERENCE_ONLY_BOOKMAKER_KEYS = new Set(["af:pinnacle"]);
 
 function isUsable(outcome: OutcomeQuote | undefined): outcome is OutcomeQuote {
   return !!outcome && outcome.price > 1;
@@ -82,6 +99,7 @@ function bestPrice(
 ): { bookmaker: string; outcome: OutcomeQuote } | undefined {
   let best: { bookmaker: string; outcome: OutcomeQuote } | undefined;
   for (const [bookmaker, book] of Object.entries(bookmakerOdds)) {
+    if (REFERENCE_ONLY_BOOKMAKER_KEYS.has(bookmaker.toLowerCase())) continue;
     if (bookmakerFilter && bookmaker.toLowerCase() !== bookmakerFilter.toLowerCase()) continue;
     const outcome = book.markets[marketId]?.outcomes.find((o) => isUsable(o) && outcomeKey(o) === key);
     if (!outcome) continue;

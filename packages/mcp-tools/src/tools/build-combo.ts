@@ -4,6 +4,7 @@ import {
   buildCombo as runComboSearch,
   buildSameMatchCombo as runSameMatchComboSearch,
   extractCandidateLegs,
+  REFERENCE_ONLY_BOOKMAKER_KEYS,
   type CandidateLeg,
   type ComboResult,
 } from "@bet/combo-engine";
@@ -80,6 +81,15 @@ export const buildComboInput = z.object({
 });
 
 export type BuildComboInput = z.infer<typeof buildComboInput>;
+
+/** De-dupes a fixture set's bookmaker keys and drops reference-only ones (e.g.
+ * `af:pinnacle`, see REFERENCE_ONLY_BOOKMAKER_KEYS in @bet/combo-engine) — those exist
+ * in `bookmakerOdds` purely to anchor the de-vig reference price and must never be
+ * offered as "the" bookmaker for a combo, listed as an available option in an error
+ * message, or matched against a user's explicit `bookmaker` request. */
+function bettableBookmakers(keys: Iterable<string>): string[] {
+  return [...new Set(keys)].filter((key) => !REFERENCE_ONLY_BOOKMAKER_KEYS.has(key.toLowerCase()));
+}
 
 /**
  * Batches the real Poisson statistical-probability lookup for every h2h event in one
@@ -234,7 +244,7 @@ export async function buildComboTool(input: BuildComboInput): Promise<ComboResul
   const statisticalProbabilities = await fetchStatisticalProbabilities(events);
 
   if (input.bookmaker) {
-    const cachedBookmakers = [...new Set(events.flatMap((e) => Object.keys(e.bookmakerOdds)))];
+    const cachedBookmakers = bettableBookmakers(events.flatMap((e) => Object.keys(e.bookmakerOdds)));
     const resolvedBookmaker = resolveByName(input.bookmaker, cachedBookmakers);
 
     if (!resolvedBookmaker) {
@@ -254,7 +264,7 @@ export async function buildComboTool(input: BuildComboInput): Promise<ComboResul
     return runComboSearch(candidates, constraints);
   }
 
-  const candidateBookmakers = [...new Set(events.flatMap((e) => Object.keys(e.bookmakerOdds)))];
+  const candidateBookmakers = bettableBookmakers(events.flatMap((e) => Object.keys(e.bookmakerOdds)));
   if (candidateBookmakers.length === 0) {
     return emptyResult("No hay casas de apuestas cacheadas para esos torneos.");
   }
@@ -325,7 +335,7 @@ async function buildSameMatchComboTool(input: BuildComboInput, fixtureId: string
   };
 
   const statisticalProbabilities = await fetchStatisticalProbabilities([event]);
-  const cachedBookmakers = Object.keys(event.bookmakerOdds);
+  const cachedBookmakers = bettableBookmakers(Object.keys(event.bookmakerOdds));
   if (cachedBookmakers.length === 0) {
     return emptyResult(`No hay casas de apuestas cacheadas para el partido "${fixtureId}".`);
   }
