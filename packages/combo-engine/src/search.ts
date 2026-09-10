@@ -1,4 +1,4 @@
-import { filterByRiskProfile, rankByConfidence } from "./edge";
+import { filterByRiskProfile, MIN_PROBABILITY_BY_PROFILE, rankByConfidence } from "./edge";
 import { marketFamilyOf } from "./market-families";
 import type { BuildComboConstraints, CandidateLeg, ComboResult } from "./types";
 
@@ -97,6 +97,12 @@ function runSearch(
 ): ComboResult {
   const excluded = new Set(constraints.excludeFixtureIds ?? []);
   const riskProfile = constraints.riskProfile ?? "balanced";
+  // The probability floor is keyed by riskProfile (see MIN_PROBABILITY_BY_PROFILE in
+  // ./edge.ts) — but when the caller didn't pick a riskProfile at all, it resolves
+  // against "conservative" specifically (0.8), not "balanced" (0.25): no stated risk
+  // preference should still default to the safe probability, even though the edge
+  // floor above keeps defaulting to balanced's -3% (needed to hit multiplier targets).
+  const minProbability = constraints.minProbability ?? MIN_PROBABILITY_BY_PROFILE[constraints.riskProfile ?? "conservative"];
   const tolerance = constraints.tolerance ?? DEFAULT_TOLERANCE;
 
   const pool = rankByConfidence(
@@ -106,7 +112,7 @@ function runSearch(
         conflictKey,
       ),
       riskProfile,
-      constraints.minProbability,
+      minProbability,
     ),
   );
 
@@ -117,7 +123,7 @@ function runSearch(
       legCount: 0,
       averageEdgePct: 0,
       toleranceMet: false,
-      warning: "No hay patas candidatas disponibles con los filtros dados.",
+      warning: `No hay patas candidatas con al menos ${Math.round(minProbability * 100)}% de probabilidad real (perfil "${riskProfile}") para esos filtros — probá con un porcentaje más bajo.`,
     };
   }
 

@@ -11,13 +11,19 @@ const MIN_EDGE_PCT_BY_PROFILE: Record<RiskProfile, number> = {
  * +33% edge used to pass the old edge-only floor despite having almost no real chance of
  * hitting. Require a high chance of actually happening too.
  *
- * All profiles now enforce a probability floor to prevent returning extreme longshots
- * like "miss a penalty" that have positive edge but almost zero real chance of hitting.
+ * The probability floor is keyed by the same `riskProfile` as the edge floor above — a
+ * stricter profile also demands a higher real chance of happening, not just a better
+ * edge tolerance. When the caller doesn't pick a `riskProfile` at all, `runSearch` in
+ * ./search.ts resolves the probability floor against `conservative` specifically (0.8)
+ * rather than against whatever the edge floor defaults to (`balanced`) — a deliberate
+ * 2026-09-10 decision: no stated risk preference should still mean "the safe
+ * probability," even though the edge floor itself keeps defaulting to `balanced`'s -3%
+ * (needed for hitting multiplier targets, see MIN_EDGE_PCT_BY_PROFILE above).
  */
-const MIN_PROBABILITY_BY_PROFILE: Record<RiskProfile, number> = {
+export const MIN_PROBABILITY_BY_PROFILE: Record<RiskProfile, number> = {
   conservative: 0.8, // 80% chance or more (odds <= 1.25)
-  balanced: 0.25,    // 25% chance or more (odds <= 4.0)
-  aggressive: 0.05,  // 5% chance or more (odds <= 20.0)
+  balanced: 0.25, // 25% chance or more (odds <= 4.0)
+  aggressive: 0.05, // 5% chance or more (odds <= 20.0)
 };
 
 /** Real chance of hitting: prefers the Poisson-model `statisticalProbability` when
@@ -49,16 +55,23 @@ export function rankByConfidence(legs: CandidateLeg[]): CandidateLeg[] {
   });
 }
 
+/**
+ * `minProbability`, when omitted, defaults to `riskProfile`'s own entry in
+ * MIN_PROBABILITY_BY_PROFILE — callers that need the "no explicit riskProfile ->
+ * conservative's floor" behavior (see the doc comment above) resolve that themselves
+ * before calling this (see `runSearch` in ./search.ts) rather than relying on this
+ * function's own default, since this function only ever sees one already-resolved
+ * `riskProfile`.
+ */
 export function filterByRiskProfile(
   legs: CandidateLeg[],
   riskProfile: RiskProfile = "balanced",
-  minProbability?: number,
+  minProbability: number = MIN_PROBABILITY_BY_PROFILE[riskProfile],
 ): CandidateLeg[] {
   const edgeFloor = MIN_EDGE_PCT_BY_PROFILE[riskProfile];
-  const probFloor = minProbability !== undefined ? minProbability : MIN_PROBABILITY_BY_PROFILE[riskProfile];
   return legs.filter((leg) => {
     if (leg.edgePct < edgeFloor) return false;
-    if (bestProbabilityEstimate(leg) < probFloor) return false;
+    if (bestProbabilityEstimate(leg) < minProbability) return false;
     return true;
   });
 }

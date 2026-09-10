@@ -24,15 +24,19 @@ export interface CandidateLeg {
 }
 
 /**
- * "conservative": still +EV (edge >=0%) AND a real (statistical or market-implied)
- * chance of hitting of at least 80% — low-variance picks, not just well-priced ones.
- * A >=5% edge floor on top of the probability floor was tried and rejected: clear
- * favorites (>=80% probability) essentially never clear positive edge in real cached
- * odds, so it made this profile return empty almost always.
- * "balanced"/"aggressive": edge floors (>=-3% / >=-8%) AND probability floors
- * (>=25% / >=5%) to avoid picking extreme longshots with positive edge but almost
- * zero real chance of hitting.
- * See `filterByRiskProfile` in ./edge.ts for the exact thresholds.
+ * Each profile pairs an edge floor with its own probability floor — a stricter profile
+ * demands both a better price AND a higher real chance of happening, not one or the
+ * other. "conservative": edge >=0% AND >=80% real chance of hitting (low-variance,
+ * high-confidence picks) — a >=5% edge floor on top of the probability floor was tried
+ * and rejected: clear favorites (>=80% probability) essentially never clear positive
+ * edge in real cached odds, so it made this profile return empty almost always.
+ * "balanced" (default): edge >=-3% AND >=25% real chance. "aggressive": edge >=-8% AND
+ * >=5% real chance (avoids picking extreme longshots with positive edge but almost
+ * zero real chance of hitting). When the caller doesn't pick a profile at all, the edge
+ * floor still defaults to "balanced" but the probability floor defaults to
+ * "conservative"'s (0.8) instead — see `runSearch` in ./search.ts. See
+ * `filterByRiskProfile`/`MIN_PROBABILITY_BY_PROFILE` in ./edge.ts for the exact
+ * thresholds.
  */
 export type RiskProfile = "conservative" | "balanced" | "aggressive";
 
@@ -43,7 +47,12 @@ export interface BuildComboConstraints {
   maxLegs?: number;
   excludeFixtureIds?: string[];
   riskProfile?: RiskProfile;
-  /** Explicit minimum probability (0-1) for each leg, overriding the risk profile's default floor. */
+  /**
+   * Explicit minimum probability (0-1) for each leg, overriding the risk profile's own
+   * floor (see `MIN_PROBABILITY_BY_PROFILE` in ./edge.ts). When omitted, the floor
+   * comes from `riskProfile` — or, if `riskProfile` itself is also omitted, from
+   * "conservative" specifically (0.8), not "balanced" (see `runSearch` in ./search.ts).
+   */
   minProbability?: number;
   /** Fractional tolerance around targetMultiplier, e.g. 0.15 = +/-15%. */
   tolerance?: number;

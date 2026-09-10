@@ -572,6 +572,43 @@ Left alone, every soccer bet would sit `pending` forever (silently abandoned aft
   Nothing was built to migrate or re-key old in-flight legs; this is a one-time cost of
   the cutover, not an ongoing gap.
 
+## build_combo: user-choosable probability floor via minProbability (2026-09-10)
+
+**Diagnosed live**: asking the agent for "una apuesta con 60% de probabilidad" had no
+real parameter to land on — `riskProfile` was the only probability-aware knob, and
+`"conservative"` (its highest-probability profile) paired an 80% floor with an edge
+>=0% requirement that, confirmed live against real cached soccer odds, returns **zero
+legs almost always**: heavy favorites are priced efficiently enough by bookmakers that
+they essentially never clear positive edge (max observed -0.31%).
+
+`build_combo` gained an explicit `minProbability` param (0-1 fraction,
+`packages/mcp-tools/src/tools/build-combo.ts`) so a user-given percentage
+("quiero 60% de probabilidad" → `minProbability: 0.6`) can override whatever
+probability floor the chosen `riskProfile` would otherwise apply — `MIN_PROBABILITY_BY_PROFILE`
+in `packages/combo-engine/src/edge.ts` (`conservative: 0.8`, `balanced: 0.25`,
+`aggressive: 0.05`). **The probability floor stays keyed by `riskProfile`, not flattened
+to one constant for every profile** — a stricter profile still demands both a better
+edge AND a higher real chance of happening; this mirrors the edge floor already being
+per-profile and was a deliberate choice over having `minProbability` be the only knob.
+
+**One default was deliberately decoupled from the profile-selection default**: when the
+caller doesn't pass `riskProfile` at all, the edge floor still falls back to
+`"balanced"`'s -3% (needed so a plain "combo de Nx" can still hit its target), but the
+probability floor specifically falls back to `"conservative"`'s 80% instead of
+`"balanced"`'s 25% (see `runSearch` in `packages/combo-engine/src/search.ts`) — no
+stated risk preference should still mean "the safe probability by default." Confirmed
+live this means a bare `build_combo` call with no risk profile and no target
+probability, including a plain high-multiplier request (e.g. "combo de 50x"), can come
+back empty purely because of this implicit 80% floor — pass `minProbability: 0` to
+disable it outright for exactly that case (a long-shot combo structurally needs
+low-probability legs). `describeAppliedFloor` in `build-combo.ts` makes sure the
+empty-result warning always states which floor/profile was actually applied, instead of
+a generic "no bookmaker had enough legs" message that looked identical whether the
+cause was the probability floor or genuinely no cached data — `apps/web/lib/agent/
+parlay-agent.ts` was updated to expect this implicit default and proactively offer
+lowering `minProbability` (or switching to `"aggressive"`, 5%) the same way it already
+offered switching risk profiles for edge alone.
+
 ## Highlightly quota (2026-08-31)
 
 Second external data source, added for statistical (Poisson-model) win/draw/loss

@@ -4,6 +4,7 @@ import {
   buildCombo as runComboSearch,
   buildSameMatchCombo as runSameMatchComboSearch,
   extractCandidateLegs,
+  MIN_PROBABILITY_BY_PROFILE,
   REFERENCE_ONLY_BOOKMAKER_KEYS,
   type CandidateLeg,
   type ComboResult,
@@ -57,25 +58,37 @@ export const buildComboInput = z.object({
   // edge still means "this book's price vs. the real consensus line."
   bookmaker: z.string().optional(),
   excludeFixtureIds: z.array(z.string()).optional(),
-  // "conservative": still +EV (>=0% edge) AND >=80% real chance of hitting (statistical
-  // when available, else market-implied) — low-variance picks, not just well-priced
-  // ones. "balanced" (default): edge >= -3%, no probability floor. "aggressive": edge
-  // >= -8%, no probability floor. Map "perfil conservador/moderado/agresivo" (or
-  // synonyms like "seguro"/"arriesgado") from the user's request to this parameter —
-  // omitting it silently falls back to "balanced".
+  // Each profile pairs an edge floor with its OWN probability floor (see
+  // MIN_PROBABILITY_BY_PROFILE in @bet/combo-engine's edge.ts) — a stricter profile
+  // demands both a better price and a higher real chance of happening. "conservative":
+  // edge >=0% AND >=80% real chance of hitting (statistical when available, else
+  // market-implied) — low-variance, high-confidence picks. "balanced" (default): edge
+  // >=-3% AND >=25% real chance. "aggressive": edge >=-8% AND >=5% real chance. Map
+  // "perfil conservador/moderado/agresivo" (or synonyms like "seguro"/"arriesgado")
+  // from the user's request to this parameter. IMPORTANT: omitting it does NOT mean
+  // "no probability floor" — the edge floor falls back to "balanced" but the
+  // probability floor specifically falls back to "conservative"'s 80%, so a bare
+  // build_combo call with no risk preference already only considers >=80%-probability
+  // legs (see minProbability below to change that number directly).
   riskProfile: z
     .enum(["conservative", "balanced", "aggressive"])
     .optional()
     .describe(
-      "Risk profile for leg selection. 'conservative' = still +EV (edge >=0%) AND >=80% real chance of hitting (low-variance, high-confidence picks). 'balanced' (default) = edge >= -3%, no probability floor. 'aggressive' = edge >= -8%, no probability floor. Map the user's requested risk level (e.g. Spanish 'perfil conservador/moderado/agresivo', 'seguro', 'arriesgado') onto this — don't leave it unset if the user expressed a risk preference, since omitting it silently defaults to 'balanced'.",
+      "Risk profile for leg selection — pairs an edge floor with its OWN probability floor. 'conservative' = edge >=0% AND >=80% real chance of hitting (low-variance, high-confidence picks). 'balanced' (default) = edge >=-3% AND >=25% real chance. 'aggressive' = edge >=-8% AND >=5% real chance. Map the user's requested risk level (e.g. Spanish 'perfil conservador/moderado/agresivo', 'seguro', 'arriesgado') onto this. Omitting it does NOT disable the probability floor: it falls back to 'conservative''s 80% specifically (not 'balanced''s 25%), so a default call already only considers >=80%-probability legs — use minProbability to pick a different number directly.",
     ),
+  // Percentage-as-fraction (0-1, e.g. 0.6 for "60%"). Independent override of whichever
+  // profile's probability floor would otherwise apply (see riskProfile above) — map an
+  // explicit user-given percentage ("quiero un 60% de probabilidad") directly onto
+  // this. Pass 0 only when the user explicitly wants to ignore probability entirely —
+  // e.g. chasing a high target multiplier, which structurally needs low-probability
+  // long-shot legs and would otherwise be blocked by riskProfile's own floor.
   minProbability: z
     .number()
     .min(0)
     .max(1)
     .optional()
     .describe(
-      "Explicit minimum probability floor (0.0 to 1.0) for every leg in the combo. Use this if the user asks for a specific probability minimum, e.g., '60% de probabilidad' -> 0.60. Overrides the default floor from the riskProfile.",
+      "Explicit minimum probability floor (0.0-1.0, e.g. 0.6 for 60%) for every leg — overrides whichever profile's own floor would otherwise apply (see riskProfile). Map an explicit user-given percentage onto this directly. Pass 0 only if the user explicitly wants to ignore probability (e.g. chasing a high target multiplier that needs long-shot legs) — riskProfile's own floor (80% when no profile is given at all) will otherwise often return few or no legs for that kind of request, so proactively offer lowering this (or passing 0) when a search comes back empty because of it.",
     ),
   tolerance: z.number().min(0).max(1).optional(),
 });
@@ -89,6 +102,21 @@ export type BuildComboInput = z.infer<typeof buildComboInput>;
  * message, or matched against a user's explicit `bookmaker` request. */
 function bettableBookmakers(keys: Iterable<string>): string[] {
   return [...new Set(keys)].filter((key) => !REFERENCE_ONLY_BOOKMAKER_KEYS.has(key.toLowerCase()));
+}
+
+/**
+ * The per-bookmaker "try every bookmaker, keep the best" loops below discard each
+ * individual runComboSearch's own warning once every attempt comes back empty (they
+ * only track whether `legs.length === 0`, not why) — so the final "no bookmaker had
+ * enough legs" message needs to independently explain the probability floor that was
+ * actually applied. Mirrors the same "no riskProfile -> conservative's floor, not
+ * balanced's" resolution `runSearch` in @bet/combo-engine's search.ts does, so this
+ * message never disagrees with what the search itself just did.
+ */
+function describeAppliedFloor(input: BuildComboInput): string {
+  const riskProfile = input.riskProfile ?? "balanced";
+  const minProbability = input.minProbability ?? MIN_PROBABILITY_BY_PROFILE[input.riskProfile ?? "conservative"];
+  return `al menos ${Math.round(minProbability * 100)}% de probabilidad real (perfil "${riskProfile}")`;
 }
 
 /**
@@ -283,7 +311,7 @@ export async function buildComboTool(input: BuildComboInput): Promise<ComboResul
 
   if (!best) {
     return emptyResult(
-      `Ninguna casa cacheada (${candidateBookmakers.join(", ")}) tiene suficientes patas para armar un combo con esos filtros.`,
+      `Ninguna casa cacheada (${candidateBookmakers.join(", ")}) tiene suficientes patas con ${describeAppliedFloor(input)} para armar un combo con esos filtros — probá con un porcentaje más bajo.`,
     );
   }
   return best;
@@ -371,7 +399,7 @@ async function buildSameMatchComboTool(input: BuildComboInput, fixtureId: string
 
   if (!best) {
     return emptyResult(
-      `Ninguna casa cacheada (${cachedBookmakers.join(", ")}) tiene suficientes mercados distintos para armar un combo de este partido.`,
+      `Ninguna casa cacheada (${cachedBookmakers.join(", ")}) tiene suficientes mercados distintos con ${describeAppliedFloor(input)} para armar un combo de este partido — probá con un porcentaje más bajo.`,
     );
   }
   return best;
