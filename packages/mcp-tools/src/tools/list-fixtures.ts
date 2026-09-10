@@ -30,7 +30,7 @@ export interface FixtureSummary {
   homeTeam?: string;
   awayTeam?: string;
   startTime: string;
-  bookmakerOdds?: BookmakerOdds;
+  availableBookmakers: string[];
 }
 
 /**
@@ -62,7 +62,7 @@ export async function listFixtures(input: ListFixturesInput) {
         homeTeam: r.homeTeam ?? undefined,
         awayTeam: r.awayTeam ?? undefined,
         startTime: (r.commenceTime ?? r.updatedAt).toISOString(),
-        bookmakerOdds: (r.bookmakerOdds as BookmakerOdds) ?? undefined,
+        availableBookmakers: r.bookmakerOdds ? Object.keys(r.bookmakerOdds as BookmakerOdds) : [],
       }))
       .filter((f) => {
         if (!input.teamName) return true;
