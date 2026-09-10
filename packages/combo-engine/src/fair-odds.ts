@@ -121,6 +121,10 @@ export function extractCandidateLegs(events: Event[], options: ExtractCandidateL
     }
 
     for (const marketId of marketIds) {
+      // The user explicitly banned "miss a penalty" and similar obscure penalty props
+      // because they derail standard combo building.
+      if (marketId.includes("penalty")) continue;
+
       const refPrices = referencePrices(event.bookmakerOdds, marketId);
       const fairProbabilities = deVig(refPrices);
 
