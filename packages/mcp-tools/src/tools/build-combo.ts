@@ -17,6 +17,22 @@ import { estimateMatchProbabilitiesBatch, fixtureKey, type StatisticalProbabilit
 
 const MAX_SPORT_KEYS = 20;
 
+/**
+ * TEMPORARY product limit: in soccer, only offer these three markets — match winner
+ * ("quién gana"), player shots ("tiros por jugador") and total cards ("tarjetas
+ * totales"). Other sports are unrestricted. Today only "h2h" is actually cached (see
+ * MARKETS in apps/web/app/api/ingest/poll/route.ts), so this is mostly a guardrail for
+ * when more soccer markets get ingested — confirm the real The Odds API market keys for
+ * shots/cards at that point. Widen/remove this when the product opens up more markets.
+ */
+const ALLOWED_SOCCER_MARKETS = new Set(["h2h", "player_shots", "player_shots_on_target", "total_cards"]);
+
+function limitSoccerMarkets(legs: CandidateLeg[]): CandidateLeg[] {
+  return legs.filter(
+    (leg) => !leg.sportKey.startsWith("soccer_") || ALLOWED_SOCCER_MARKETS.has(leg.marketId),
+  );
+}
+
 export const buildComboInput = z.object({
   targetMultiplier: z.number().positive().optional(),
   targetLegCount: z.number().int().min(1).optional(),
@@ -282,7 +298,7 @@ export async function buildComboTool(input: BuildComboInput): Promise<ComboResul
     }
 
     const candidates = applyStatisticalProbabilities(
-      extractCandidateLegs(events, { bookmaker: resolvedBookmaker }),
+      limitSoccerMarkets(extractCandidateLegs(events, { bookmaker: resolvedBookmaker })),
       statisticalProbabilities,
     );
     
@@ -300,7 +316,7 @@ export async function buildComboTool(input: BuildComboInput): Promise<ComboResul
   let best: ComboResult | null = null;
   for (const bookmaker of candidateBookmakers) {
     const candidates = applyStatisticalProbabilities(
-      extractCandidateLegs(events, { bookmaker }),
+      limitSoccerMarkets(extractCandidateLegs(events, { bookmaker })),
       statisticalProbabilities,
     );
     if (candidates.length === 0) continue;
