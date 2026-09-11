@@ -67,7 +67,20 @@ export async function GET(
       }
 
       return { id: m.id, role: m.role, parts };
-    });
+    })
+      // The AI SDK's UIMessage schema requires >=1 part per message (confirmed live
+      // 2026-09-11: `AI_TypeValidationError, "Message must contain at least one part"`
+      // — a SECOND, separate validation failure hit right after fixing the
+      // missing-`parts`-array one above). Every row saved before both this fix and the
+      // `lastMsg.content` fix in chat/route.ts has NULL content and no tool calls, so
+      // it maps to zero parts here — a real, permanent data artifact, not a
+      // hypothetical. Padding with an empty text part instead of dropping the message
+      // was tried and rejected: it satisfies the UI SDK's own schema, but Anthropic's
+      // API then 400s on it directly ("user messages must have non-empty content"),
+      // just moving the failure from a hard 500 to a permanently-broken conversation
+      // (every future turn would hit the same empty message in its context). Dropping
+      // it is safe — an empty turn carries no information the model needs anyway.
+      .filter((m) => m.parts.length > 0);
 
     return Response.json(uiMessages);
   } catch (error) {

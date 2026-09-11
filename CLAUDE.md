@@ -729,11 +729,26 @@ result from `toolResults[toolCallId]`) — matching the same shape `isToolPart`/
 `getToolOutput` already expect from a live response, so historical tool-result cards
 render identically to live ones instead of just not crashing.
 
-**Related, non-fatal bug fixed alongside it**: `POST /api/agent/chat` saved every user
-message's `content` as `lastMsg.content` — real UIMessages don't have that field either
-(same v3/v4-vs-v7 confusion), so every saved user message silently stored `NULL` text
-(never crashed, just meant history would have shown blank user bubbles once the crash
-above was fixed). Now extracts text from `lastMsg.parts` instead.
+**A second, separate validation failure surfaced immediately after deploying that fix**,
+confirmed live against this exact conversation: the AI SDK's `UIMessage` schema also
+requires **at least one part per message**, and every row saved before both this fix
+and the `lastMsg.content` fix below (see next paragraph) has NULL content and no tool
+calls — a real, permanent data artifact already sitting in production, not a
+hypothetical. First tried padding those with a single empty-string text part: that
+satisfies the AI SDK's own schema (no more `AI_TypeValidationError`), but Anthropic's
+API then rejects it directly with its own 400 (`"user messages must have non-empty
+content"`) the moment that history is replayed — trading a hard 500 for a
+conversation that's permanently broken in a different way, since every future turn
+resends the same empty message as context. Fixed properly by filtering those messages
+out of the mapped array entirely instead of padding them — an empty turn carries no
+information the model needs, so dropping it is safe and terminates the failure for
+good rather than relocating it.
+
+**Related, non-fatal bug fixed alongside both of the above**: `POST /api/agent/chat`
+saved every user message's `content` as `lastMsg.content` — real UIMessages don't have
+that field either (same v3/v4-vs-v7 confusion), so every saved user message silently
+stored `NULL` text (never crashed on write, just is the reason the two validation bugs
+above had real data to trip on at all). Now extracts text from `lastMsg.parts` instead.
 
 **Verification note**: this class of bug reproduces identically whether or not Clerk
 auth is involved — a standalone script that mints its own internal MCP token, points a
