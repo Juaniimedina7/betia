@@ -58,10 +58,17 @@ export async function POST(req: Request) {
 
   const lastMsg = messages[messages.length - 1];
   if (lastMsg && lastMsg.role === "user") {
+    // Real UIMessages carry `parts`, not a top-level `content` string (that's the
+    // legacy v3/v4 shape) — `lastMsg.content` was always undefined here, so every
+    // saved user message silently stored NULL. Extract the text parts instead.
+    const textContent = (lastMsg.parts ?? [])
+      .filter((p: any) => p?.type === "text")
+      .map((p: any) => p.text)
+      .join("");
     await db.insert(chatMessages).values({
       sessionId,
       role: "user",
-      content: lastMsg.content
+      content: textContent || null
     });
   }
 

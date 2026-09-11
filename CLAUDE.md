@@ -686,6 +686,63 @@ combo as satisfying the originally requested probability — it has to state pla
 the floor wasn't reachable and quote the real achieved probability from the warning
 before describing the combo.
 
+## Chat history feature (`chat_sessions`/`chat_messages`) shipped with a UIMessage format bug that 500'd every second message (2026-09-11)
+
+A teammate's `ebd93e1 feat: implement chat history in agent UI and API` added persistent
+chat history — new `chat_sessions`/`chat_messages` tables (`packages/db/src/schema.ts`),
+`GET /api/agent/history` (list) and `GET /api/agent/history/[id]` (one session's
+messages, loaded into `useChat` via `setMessages`), and `POST /api/agent/chat` writing
+both the user's message and the assistant's final turn after each response. **The new
+tables were never pushed to the shared VPS Postgres** — same caution documented
+elsewhere in this file about `db:push` prompting to truncate `monthly_usage` on
+unrelated drift: don't run interactive `db:push` here, hand-write the `CREATE TABLE`
+SQL matching the Drizzle schema and apply via `psql` directly, which is what unblocked
+this.
+
+**Confirmed live 2026-09-11, diagnosed from a real broken conversation**: sending a
+*second* message in any chat (one where `chatId` is already set and history has been
+loaded) always 500'd with an empty response body — Next.js hides the real stack trace
+in production, so the UI only ever showed the generic "Algo falló armando la respuesta."
+banner, no hint of the cause. Reproduced directly (bypassing Clerk/Next entirely — mint
+an internal MCP token, hit `/api/mcp` from a local dev server, build the agent, call
+`createAgentUIStreamResponse` by hand) to get the real error: `AI_TypeValidationError`,
+`path: [0, "parts"] — Invalid input: expected array, received undefined`.
+
+**Root cause**: `/api/agent/history/[id]/route.ts` mapped stored messages to the
+**legacy AI SDK v3/v4** UIMessage shape (top-level `content` string,
+`toolInvocations: [{state: "result", ...}]`) — this app runs AI SDK v7/`ai@7`, whose
+`UIMessage` has no top-level `content` at all, only a `parts` array, and its tool parts
+use `dynamic-tool`/`state: "output-available"`/`input`/`output` (see
+`lib/agent-tool-output.ts`'s `isToolPart`, already written for this real shape from the
+live-streaming side — the history route just never matched it). The very first message
+in a brand-new chat worked fine (no history to load yet), which is why this wasn't
+caught immediately: it only breaks once `chatId` is set and `page.tsx`'s history-load
+effect calls `setMessages` with the malformed shape, silently wiping the correctly-shaped
+in-memory messages too (this is *also* why the first message's own answer visually
+vanished right after arriving — not a separate bug, same one). The next `sendMessage`
+then POSTs that malformed history plus the new message, and `createAgentUIStreamResponse`
+rejects it synchronously before ever calling the model.
+
+Fixed by rewriting the mapping to emit real `{id, role, parts}` messages — a text part
+when `content` is non-empty, one `dynamic-tool` part per stored tool call (reading its
+result from `toolResults[toolCallId]`) — matching the same shape `isToolPart`/
+`getToolOutput` already expect from a live response, so historical tool-result cards
+render identically to live ones instead of just not crashing.
+
+**Related, non-fatal bug fixed alongside it**: `POST /api/agent/chat` saved every user
+message's `content` as `lastMsg.content` — real UIMessages don't have that field either
+(same v3/v4-vs-v7 confusion), so every saved user message silently stored `NULL` text
+(never crashed, just meant history would have shown blank user bubbles once the crash
+above was fixed). Now extracts text from `lastMsg.parts` instead.
+
+**Verification note**: this class of bug reproduces identically whether or not Clerk
+auth is involved — a standalone script that mints its own internal MCP token, points a
+fresh `createMCPClient` at a locally-running `next dev` server's `/api/mcp`, and calls
+`createParlayAgent`/`createAgentUIStreamResponse` directly reaches the exact same
+`ai@7` code path as the real route, without needing a logged-in browser session at all.
+Worth reaching for this before assuming a Vercel-only production issue — the empty 500
+body here would have looked the same in prod or locally.
+
 ## build_combo's `sports` param silently failed on anything but the exact literal group name (2026-09-10)
 
 **Diagnosed live from a real agent conversation**: a user asked for a generic "fútbol,
