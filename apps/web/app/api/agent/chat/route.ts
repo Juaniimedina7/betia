@@ -83,7 +83,7 @@ export async function POST(req: Request) {
   const toolCalls: any[] = [];
   const toolResults: Record<string, any> = {};
 
-  const response = createAgentUIStreamResponse({
+  const response = await createAgentUIStreamResponse({
     agent,
     uiMessages: messages,
     onStepEnd: (step) => {
@@ -95,7 +95,8 @@ export async function POST(req: Request) {
         if (part.type === "text") {
           assistantContent += part.text;
         } else if (part.type === "tool-call") {
-          toolCalls.push({ toolCallId: part.toolCallId, toolName: part.toolName, args: part.args });
+          // AI SDK types use `input` for the arguments payload
+          toolCalls.push({ toolCallId: part.toolCallId, toolName: part.toolName, args: (part as any).input || (part as any).args });
         } else if (part.type === "tool-result") {
           toolResults[part.toolCallId] = part.output;
           console.log(`${tag} tool_result ${part.toolName}`, JSON.stringify(part.output).slice(0, 2000));
@@ -123,6 +124,6 @@ export async function POST(req: Request) {
     },
   });
 
-  response.headers.set("x-chat-id", sessionId);
+  response.headers.set("x-chat-id", sessionId!);
   return response;
 }
