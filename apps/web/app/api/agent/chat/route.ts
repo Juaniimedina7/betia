@@ -5,6 +5,7 @@ import { createParlayAgent } from "@/lib/agent/parlay-agent";
 import { mintInternalMcpToken } from "@/lib/mcp/internal-token";
 import { consumeRun } from "@/lib/usage";
 import { isAdminRole } from "@/lib/admin";
+import { getDb, chatSessions, chatMessages } from "@bet/db";
 
 export async function POST(req: Request) {
   const { userId } = await auth();
@@ -24,8 +25,6 @@ export async function POST(req: Request) {
   const user = await currentUser();
   const email = user?.emailAddresses?.[0]?.emailAddress;
 
-  // Admins get unlimited combinadas — skip quota entirely. Everyone else is
-  // metered before we spend an LLM call.
   if (!isAdminRole(user?.publicMetadata)) {
     const quota = await consumeRun(userId, email);
     if (!quota.allowed) {
@@ -43,6 +42,28 @@ export async function POST(req: Request) {
   }
 
   const { messages } = await req.json();
+  const url = new URL(req.url);
+  const chatId = url.searchParams.get("chatId");
+  
+  const db = getDb();
+  let sessionId = chatId;
+
+  if (!sessionId) {
+    const [newSession] = await db.insert(chatSessions).values({
+      userId,
+      title: "Nueva conversación"
+    }).returning({ id: chatSessions.id });
+    sessionId = newSession.id;
+  }
+
+  const lastMsg = messages[messages.length - 1];
+  if (lastMsg && lastMsg.role === "user") {
+    await db.insert(chatMessages).values({
+      sessionId,
+      role: "user",
+      content: lastMsg.content
+    });
+  }
 
   const internalToken = await mintInternalMcpToken(userId);
   const mcpUrl = new URL("/api/mcp", req.url);
@@ -58,22 +79,25 @@ export async function POST(req: Request) {
   const tools = await mcpClient.tools();
   const agent = createParlayAgent(tools);
 
-  return createAgentUIStreamResponse({
+  let assistantContent = "";
+  const toolCalls: any[] = [];
+  const toolResults: Record<string, any> = {};
+
+  const response = createAgentUIStreamResponse({
     agent,
     uiMessages: messages,
-    // Agent-level step callback (distinct from the UI-message-stream `onEnd` below) —
-    // fires once per LLM call with every tool call/result made during that step. This
-    // is the only visibility we have into what the model actually decided to call and
-    // with what arguments; without it, an "erratic" agent (wrong tool, wrong args,
-    // tool erroring, or getting cut off by the `stopWhen: isStepCount(8)` cap in
-    // parlay-agent.ts) is invisible until a user reports it.
     onStepEnd: (step) => {
       const tag = `[agent/chat] user=${userId} step=${step.stepNumber}`;
       for (const call of step.toolCalls) {
         console.log(`${tag} tool_call ${call.toolName}`, JSON.stringify(call.input));
       }
       for (const part of step.content) {
-        if (part.type === "tool-result") {
+        if (part.type === "text") {
+          assistantContent += part.text;
+        } else if (part.type === "tool-call") {
+          toolCalls.push({ toolCallId: part.toolCallId, toolName: part.toolName, args: part.args });
+        } else if (part.type === "tool-result") {
+          toolResults[part.toolCallId] = part.output;
           console.log(`${tag} tool_result ${part.toolName}`, JSON.stringify(part.output).slice(0, 2000));
         } else if (part.type === "tool-error") {
           console.error(`${tag} tool_error ${part.toolName}`, part.error);
@@ -83,14 +107,22 @@ export async function POST(req: Request) {
     },
     onEnd: async () => {
       await mcpClient.close();
+      if (assistantContent || toolCalls.length > 0) {
+        await db.insert(chatMessages).values({
+          sessionId,
+          role: "assistant",
+          content: assistantContent,
+          toolCalls: toolCalls.length > 0 ? toolCalls : null,
+          toolResults: Object.keys(toolResults).length > 0 ? toolResults : null
+        });
+      }
     },
-    // Default is `() => "An error occurred."` — a mid-stream failure (Anthropic API
-    // error, uncaught tool exception) would otherwise surface that fixed English
-    // string as-is to the chat UI. Log the real error server-side and hand the client
-    // a safe, distinguishable Spanish message instead.
     onError: (error) => {
       console.error("[agent/chat] stream error", error);
       return "No pudimos completar la respuesta del agente. Probá de nuevo en un momento.";
     },
   });
+
+  response.headers.set("x-chat-id", sessionId);
+  return response;
 }
