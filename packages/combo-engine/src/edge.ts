@@ -4,6 +4,7 @@ const MIN_EDGE_PCT_BY_PROFILE: Record<RiskProfile, number> = {
   conservative: 0, // still +EV, never a knowingly-negative-value pick — see MIN_PROBABILITY_CONSERVATIVE below
   balanced: -3, // allow slightly -EV legs to hit multiplier targets
   aggressive: -8,
+  "safe-parlay": -8, // tolerate negative edge specifically to stack highly probable favorites
 };
 
 /**
@@ -24,6 +25,7 @@ export const MIN_PROBABILITY_BY_PROFILE: Record<RiskProfile, number> = {
   conservative: 0.8, // 80% chance or more (odds <= 1.25)
   balanced: 0.25, // 25% chance or more (odds <= 4.0)
   aggressive: 0.05, // 5% chance or more (odds <= 20.0)
+  "safe-parlay": 0.75, // 75% chance or more
 };
 
 /** Real chance of hitting: prefers the Poisson-model `statisticalProbability` when
@@ -70,10 +72,14 @@ export function filterByRiskProfile(
   riskProfile: RiskProfile = "balanced",
   minProbability: number = MIN_PROBABILITY_BY_PROFILE[riskProfile],
 ): CandidateLeg[] {
-  const edgeFloor = MIN_EDGE_PCT_BY_PROFILE[riskProfile];
+  const baseEdgeFloor = MIN_EDGE_PCT_BY_PROFILE[riskProfile];
   return legs.filter((leg) => {
+    const prob = bestProbabilityEstimate(leg);
+    // Relax edge floor for high-probability legs (favorites)
+    // because retail books have high vig on them, giving them negative edge vs Pinnacle.
+    const edgeFloor = prob >= 0.8 ? Math.min(baseEdgeFloor, -8) : baseEdgeFloor;
     if (leg.edgePct < edgeFloor) return false;
-    if (bestProbabilityEstimate(leg) < minProbability) return false;
+    if (prob < minProbability) return false;
     return true;
   });
 }

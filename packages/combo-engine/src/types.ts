@@ -38,7 +38,7 @@ export interface CandidateLeg {
  * `filterByRiskProfile`/`MIN_PROBABILITY_BY_PROFILE` in ./edge.ts for the exact
  * thresholds.
  */
-export type RiskProfile = "conservative" | "balanced" | "aggressive";
+export type RiskProfile = "conservative" | "balanced" | "aggressive" | "safe-parlay";
 
 export interface BuildComboConstraints {
   targetMultiplier?: number;

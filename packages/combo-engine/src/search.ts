@@ -126,13 +126,18 @@ function runSearch(
   const edgeFilteredPool = filterByRiskProfile(deduped, riskProfile, 0);
 
   if (edgeFilteredPool.length === 0) {
+    const hadFavorites = deduped.some((leg) => bestProbabilityEstimate(leg) >= minProbability);
+    const warning = hadFavorites
+      ? `Las patas favoritas (≥${Math.round(minProbability * 100)}% de probabilidad) tienen edge negativo contra Pinnacle y fueron filtradas por el perfil "${riskProfile}".`
+      : `No hay patas candidatas que cumplan el piso de edge del perfil "${riskProfile}" para esos filtros.`;
+
     return {
       legs: [],
       combinedOddsDecimal: 0,
       legCount: 0,
       averageEdgePct: 0,
       toleranceMet: false,
-      warning: `No hay patas candidatas que cumplan el piso de edge del perfil "${riskProfile}" para esos filtros.`,
+      warning,
     };
   }
 
