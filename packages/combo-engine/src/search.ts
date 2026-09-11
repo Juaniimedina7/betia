@@ -114,8 +114,13 @@ function runSearch(
   const minProbability = constraints.minProbability ?? MIN_PROBABILITY_BY_PROFILE[constraints.riskProfile ?? "conservative"];
   const tolerance = constraints.tolerance ?? DEFAULT_TOLERANCE;
 
+  const included = constraints.includeFixtureIds ? new Set(constraints.includeFixtureIds) : undefined;
   const deduped = bestLegPerConflictKey(
-    allCandidates.filter((leg) => !excluded.has(leg.fixtureId)),
+    allCandidates.filter((leg) => {
+      if (excluded.has(leg.fixtureId)) return false;
+      if (included && !included.has(leg.fixtureId)) return false;
+      return true;
+    }),
     conflictKey,
   );
 
@@ -152,12 +157,17 @@ function runSearch(
 
   const targetMultiplier = constraints.targetMultiplier ?? deriveTargetFromLegCount(pool, constraints);
   const targetLog = Math.log(targetMultiplier);
-  const minLegs = constraints.minLegs ?? DEFAULT_MIN_LEGS;
-  const maxLegs = Math.min(constraints.maxLegs ?? DEFAULT_MAX_LEGS, pool.length);
-
-  const legCounts = constraints.targetLegCount
-    ? [constraints.targetLegCount]
-    : rangeInclusive(minLegs, maxLegs);
+  
+  let legCounts: number[];
+  if (constraints.includeFixtureIds && constraints.includeFixtureIds.length > 0) {
+    legCounts = [constraints.includeFixtureIds.length];
+  } else if (constraints.targetLegCount) {
+    legCounts = [constraints.targetLegCount];
+  } else {
+    const minLegs = constraints.minLegs ?? DEFAULT_MIN_LEGS;
+    const maxLegs = Math.min(constraints.maxLegs ?? DEFAULT_MAX_LEGS, pool.length);
+    legCounts = rangeInclusive(minLegs, maxLegs);
+  }
 
   let best: { legs: CandidateLeg[]; log: number } | null = null;
   let bestDiffAbs = Infinity;

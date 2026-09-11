@@ -75,6 +75,7 @@ export const buildComboInput = z.object({
   // edge still means "this book's price vs. the real consensus line."
   bookmaker: z.string().optional(),
   excludeFixtureIds: z.array(z.string()).optional(),
+  includeFixtureIds: z.array(z.string()).optional(),
   // Each profile pairs an edge floor with its OWN probability floor (see
   // MIN_PROBABILITY_BY_PROFILE in @bet/combo-engine's edge.ts) — a stricter profile
   // demands both a better price and a higher real chance of happening. "conservative":
@@ -300,6 +301,7 @@ export async function buildComboTool(input: BuildComboInput): Promise<ComboResul
     minLegs: input.minLegs,
     maxLegs: input.maxLegs,
     excludeFixtureIds: input.excludeFixtureIds,
+    includeFixtureIds: input.includeFixtureIds,
     riskProfile: input.riskProfile,
     minProbability: input.minProbability,
     tolerance: input.tolerance,

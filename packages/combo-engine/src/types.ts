@@ -46,6 +46,7 @@ export interface BuildComboConstraints {
   minLegs?: number;
   maxLegs?: number;
   excludeFixtureIds?: string[];
+  includeFixtureIds?: string[];
   riskProfile?: RiskProfile;
   /**
    * Explicit minimum probability (0-1) for each leg, overriding the risk profile's own
