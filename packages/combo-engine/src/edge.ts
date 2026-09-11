@@ -77,7 +77,7 @@ export function filterByRiskProfile(
     const prob = bestProbabilityEstimate(leg);
     // Relax edge floor for high-probability legs (favorites)
     // because retail books have high vig on them, giving them negative edge vs Pinnacle.
-    const edgeFloor = prob >= 0.8 ? Math.min(baseEdgeFloor, -8) : baseEdgeFloor;
+    const edgeFloor = prob >= 0.5 ? Math.min(baseEdgeFloor, -8) : baseEdgeFloor;
     if (leg.edgePct < edgeFloor) return false;
     if (prob < minProbability) return false;
     return true;
