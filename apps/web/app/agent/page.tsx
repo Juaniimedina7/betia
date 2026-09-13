@@ -38,6 +38,8 @@ export default function AgentPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
+  const explicitNewChat = useRef(false);
+
   const refreshUsage = useCallback(async () => {
     try {
       const res = await fetch("/api/usage");
@@ -104,7 +106,7 @@ export default function AgentPage() {
     if (status === "ready") {
       refreshUsage();
       loadSessions().then(data => {
-        if (!chatId && data && data.length > 0) {
+        if (!chatId && !explicitNewChat.current && data && data.length > 0) {
           const newId = data[0].id;
           setChatId(newId);
           window.history.replaceState(null, "", `/agent?chatId=${newId}`);
@@ -137,6 +139,7 @@ export default function AgentPage() {
   };
 
   const startNewChat = () => {
+    explicitNewChat.current = true;
     setChatId(null);
     window.history.replaceState(null, "", `/agent`);
   };
