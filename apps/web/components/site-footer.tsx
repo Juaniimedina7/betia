@@ -21,6 +21,7 @@ export function SiteFooter() {
           </div>
           <div className="flex flex-col gap-2">
             <Link href="/apuestas" className="hover:text-[var(--color-ink)]">Mis apuestas</Link>
+            <Link href="/settings/suscripcion" className="hover:text-[var(--color-ink)]">Mi suscripción</Link>
             <Link href="/settings/tokens" className="hover:text-[var(--color-ink)]">Tokens MCP</Link>
           </div>
         </div>

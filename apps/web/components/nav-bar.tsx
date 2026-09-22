@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
+import { Show, SignInButton, SignUpButton } from "@clerk/nextjs";
+import { UserMenu } from "@/components/user-menu";
 import { currentUserIsAdmin } from "@/lib/admin";
 
 const LINKS = [
@@ -59,9 +60,7 @@ export async function NavBar({ clerkEnabled }: { clerkEnabled: boolean }) {
                 <Link href="/agent" className="btn btn-primary !px-3.5 !py-2 !text-sm">
                   Armar combinada
                 </Link>
-                <UserButton
-                  appearance={{ elements: { avatarBox: "h-8 w-8" } }}
-                />
+                <UserMenu />
               </Show>
             </>
           ) : (
