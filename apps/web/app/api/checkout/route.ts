@@ -1,4 +1,6 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
+import { getDb, users } from "@bet/db";
+import { eq } from "drizzle-orm";
 import { createPreapproval, mpEnabled } from "@/lib/mercadopago";
 import { ensureUser, getSubscription } from "@/lib/usage";
 import type { PlanId } from "@/lib/plans";
@@ -29,7 +31,9 @@ export async function POST(req: Request) {
 
   const origin = new URL(req.url).origin;
   try {
-    const { url } = await createPreapproval({ planId, userId, email, baseUrl: origin });
+    const { url, id } = await createPreapproval({ planId, userId, email, baseUrl: origin });
+    // Lets the dashboard confirm it on the next visit, however the user comes back.
+    await getDb().update(users).set({ mpPendingPreapprovalId: id }).where(eq(users.id, userId));
     return Response.json({ url });
   } catch (e) {
     // MP's raw error (status + body) stays in the server log, never in the UI.

@@ -1,4 +1,14 @@
+import { getDb, mpWebhookEvents } from "@bet/db";
 import { syncPreapproval, verifyWebhookSignature } from "@/lib/mercadopago";
+
+/** Best-effort audit row per hit — a logging failure must never fail the webhook. */
+async function record(event: typeof mpWebhookEvents.$inferInsert) {
+  try {
+    await getDb().insert(mpWebhookEvents).values(event);
+  } catch (e) {
+    console.error("[mp-webhook] could not record event", e);
+  }
+}
 
 /** MP pings this on subscription events. We check MP's signature, then
  *  re-fetch the preapproval from MP (our own token) and sync the user's plan. */
@@ -11,6 +21,7 @@ export async function POST(req: Request) {
 
   const signature = verifyWebhookSignature(req, signedId);
   if (signature === false) {
+    await record({ query: url.search, topic, dataId: signedId, signatureOk: false, outcome: "rejected" });
     return new Response("invalid signature", { status: 401 });
   }
   if (signature === null) {
@@ -26,15 +37,21 @@ export async function POST(req: Request) {
     // MP sometimes sends empty/non-JSON bodies; query params cover those.
   }
 
+  let outcome = "skipped";
+  let error: string | undefined;
   // Payment events (subscription_authorized_payment, payment) aren't handled yet.
   if (id && (!topic || topic.includes("preapproval"))) {
     try {
-      await syncPreapproval(id);
+      outcome = (await syncPreapproval(id))?.outcome ?? "not_ours";
     } catch (e) {
       // Never fail the webhook — MP retries on non-2xx.
+      outcome = "error";
+      error = e instanceof Error ? e.message : String(e);
       console.error("[mp-webhook] sync failed", e);
     }
   }
+
+  await record({ query: url.search, topic, dataId: id, signatureOk: signature, outcome, error });
   return new Response("ok", { status: 200 });
 }
 

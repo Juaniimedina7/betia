@@ -801,7 +801,14 @@ the dashboard when MP redirects back to `/?suscripcion=ok&preapproval_id=...`).
   MP and sets `plan_status='cancelled'` + `plan_expires_at` (from `next_payment_date`,
   read *before* cancelling). `getSubscription` in `lib/usage.ts` treats an expired
   cancelled plan as Free — read the plan through it, never `users.plan` directly.
-- `plan_expires_at` was added by hand-written SQL (`ALTER TABLE users ADD COLUMN
+- **MP's "Volver" button does not bring `preapproval_id` back** (confirmed live
+  2026-09-22 — no banner, no params), so the dashboard can't rely on the redirect.
+  `/api/checkout` stores the new id in `users.mp_pending_preapproval_id`, and the
+  dashboard calls `/api/subscription/confirm` (no id → `syncPendingCheckout`) on load
+  while one is set; it's cleared once MP resolves it or after 24h unpaid.
+- Every webhook hit is recorded in `mp_webhook_events` (query, signature result,
+  sync outcome, error) — check it first when a payment doesn't reflect in the DB.
+- `plan_expires_at`, `mp_pending_preapproval_id` and `mp_webhook_events` were added by hand-written SQL (`ALTER TABLE users ADD COLUMN
   plan_expires_at timestamptz;`), same no-`db:push` rule as above.
 - Webhook verifies `x-signature` with `MP_WEBHOOK_SECRET` when set (401 on mismatch);
   without it, it logs a warning and still works, since it never trusts the payload.

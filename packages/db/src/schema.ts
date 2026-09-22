@@ -31,6 +31,12 @@ export const users = pgTable("users", {
    * effectively on Free — see `effectivePlan` in apps/web/lib/usage.ts.
    */
   planExpiresAt: timestamp("plan_expires_at", { withTimezone: true }),
+  /**
+   * Last checkout started (MP preapproval id, still unpaid when set). The
+   * dashboard confirms it on load, since MP's "Volver" button doesn't carry
+   * preapproval_id back — see syncPendingCheckout in apps/web/lib/mercadopago.ts.
+   */
+  mpPendingPreapprovalId: text("mp_pending_preapproval_id"),
   planUpdatedAt: timestamp("plan_updated_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -303,3 +309,20 @@ export const chatSessionsRelations = relations(chatSessions, ({ one, many }) => 
 export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
   session: one(chatSessions, { fields: [chatMessages.sessionId], references: [chatSessions.id] }),
 }));
+
+/**
+ * Every hit on /api/webhooks/mercadopago, kept to debug delivery (did MP call
+ * us at all, did the signature pass, what did the sync do). Diagnostic only —
+ * nothing reads it at runtime.
+ */
+export const mpWebhookEvents = pgTable("mp_webhook_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  query: text("query"),
+  topic: text("topic"),
+  dataId: text("data_id"),
+  /** null = MP_WEBHOOK_SECRET not set, so not checked. */
+  signatureOk: boolean("signature_ok"),
+  outcome: text("outcome"),
+  error: text("error"),
+});

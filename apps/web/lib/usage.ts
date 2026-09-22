@@ -17,6 +17,8 @@ export interface Subscription {
   /** Set only for a cancelled plan still inside its paid month. */
   expiresAt: Date | null;
   mpPreapprovalId: string | null;
+  /** A checkout was started and not yet resolved — see syncPendingCheckout. */
+  hasPendingCheckout: boolean;
 }
 
 /**
@@ -31,11 +33,14 @@ export async function getSubscription(userId: string, now: Date = new Date()): P
       planStatus: users.planStatus,
       planExpiresAt: users.planExpiresAt,
       mpPreapprovalId: users.mpPreapprovalId,
+      mpPendingPreapprovalId: users.mpPendingPreapprovalId,
     })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
-  if (!row) return { planId: "free", status: "active", expiresAt: null, mpPreapprovalId: null };
+  if (!row) {
+    return { planId: "free", status: "active", expiresAt: null, mpPreapprovalId: null, hasPendingCheckout: false };
+  }
 
   const expired = row.planStatus === "cancelled" && (!row.planExpiresAt || row.planExpiresAt <= now);
   return {
@@ -43,6 +48,7 @@ export async function getSubscription(userId: string, now: Date = new Date()): P
     status: row.planStatus,
     expiresAt: expired ? null : row.planExpiresAt,
     mpPreapprovalId: row.mpPreapprovalId,
+    hasPendingCheckout: row.mpPendingPreapprovalId !== null,
   };
 }
 

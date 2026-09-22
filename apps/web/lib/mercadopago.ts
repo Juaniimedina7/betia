@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { getDb, planIds, users } from "@bet/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { PLAN_BY_ID, type PlanId } from "./plans";
 
 const MP_API = "https://api.mercadopago.com";
@@ -211,6 +211,40 @@ export async function syncPreapproval(
   }
 
   return result("ignored");
+}
+
+/** A checkout still unpaid after this long is treated as abandoned. */
+const PENDING_CHECKOUT_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Confirms the user's last started checkout (`users.mpPendingPreapprovalId`)
+ * without needing MP to pass the id back — its "Volver" button doesn't. Called
+ * by the dashboard on load. Clears the pending id once MP has resolved it
+ * (paid or cancelled) or the checkout was abandoned; keeps it while the
+ * user may still be paying.
+ */
+export async function syncPendingCheckout(userId: string): Promise<SyncOutcome | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ pending: users.mpPendingPreapprovalId })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  const id = row?.pending;
+  if (!id) return null;
+
+  const pre = await getPreapproval(id);
+  const stillPaying =
+    pre?.status === "pending" && Date.now() - Date.parse(pre.date_created ?? "") < PENDING_CHECKOUT_TTL_MS;
+  if (stillPaying) return null;
+
+  const outcome = pre && pre.status !== "pending" ? ((await syncPreapproval(id))?.outcome ?? null) : null;
+  // Only clear if no newer checkout replaced it meanwhile.
+  await db
+    .update(users)
+    .set({ mpPendingPreapprovalId: null })
+    .where(and(eq(users.id, userId), eq(users.mpPendingPreapprovalId, id)));
+  return outcome;
 }
 
 /**

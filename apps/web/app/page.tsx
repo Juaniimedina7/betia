@@ -4,7 +4,7 @@ import { PublicLanding } from "@/components/public-landing";
 import { UserDashboard, type DashboardUsage } from "@/components/user-dashboard";
 import { isAdminRole } from "@/lib/admin";
 import { getFeaturedEvents } from "@/lib/featured-events";
-import { getUsage } from "@/lib/usage";
+import { getSubscription, getUsage } from "@/lib/usage";
 
 // Signed-in users get a personalised board, so this route can't be static.
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ export default async function HomePage({
   // Admins bypass the quota entirely — same shape /api/usage returns for them.
   const admin = isAdminRole(user.publicMetadata);
 
-  const [{ events, error }, usage, betProfile] = await Promise.all([
+  const [{ events, error }, usage, betProfile, hasPendingCheckout] = await Promise.all([
     getFeaturedEvents(),
     admin
       ? Promise.resolve<DashboardUsage>({
@@ -38,6 +38,11 @@ export default async function HomePage({
         getUsage(user.id).catch(() => null),
     // Si Postgres no responde, el CTA del perfil simplemente no se muestra.
     getUserBetProfile(user.id).catch(() => undefined),
+    admin
+      ? false
+      : getSubscription(user.id)
+          .then((s) => s.hasPendingCheckout)
+          .catch(() => false),
   ]);
 
   const params = await searchParams;
@@ -54,6 +59,7 @@ export default async function HomePage({
       eventsError={error}
       betProfile={betProfile}
       checkoutReturn={checkoutReturn}
+      hasPendingCheckout={hasPendingCheckout}
     />
   );
 }

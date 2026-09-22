@@ -29,6 +29,7 @@ export function UserDashboard({
   eventsError,
   betProfile,
   checkoutReturn,
+  hasPendingCheckout = false,
 }: {
   firstName: string | null;
   initialUsage: DashboardUsage | null;
@@ -37,6 +38,8 @@ export function UserDashboard({
   betProfile?: string;
   /** Set when MP's checkout redirected back here (`?suscripcion=ok`). */
   checkoutReturn?: { preapprovalId: string | null } | null;
+  /** The user started a checkout that hasn't been confirmed yet. */
+  hasPendingCheckout?: boolean;
 }) {
   const [usage, setUsage] = useState<DashboardUsage | null>(initialUsage);
 
@@ -49,29 +52,36 @@ export function UserDashboard({
     }
   }, []);
 
-  // Back from MP checkout (`/?suscripcion=ok&preapproval_id=...`): confirm the
-  // subscription right away rather than waiting for the webhook.
+  // Confirm a just-paid subscription right away rather than waiting for the
+  // webhook: either MP redirected back with `?suscripcion=ok&preapproval_id=`,
+  // or (MP's "Volver" button carries no id) the user has a pending checkout.
   const [checkout, setCheckout] = useState<"confirming" | "ok" | "pending" | null>(
     checkoutReturn ? (checkoutReturn.preapprovalId ? "confirming" : "pending") : null,
   );
   useEffect(() => {
-    if (!checkoutReturn) return;
-    window.history.replaceState(null, "", window.location.pathname);
-    if (!checkoutReturn.preapprovalId) return;
+    if (!checkoutReturn && !hasPendingCheckout) return;
+    if (checkoutReturn) window.history.replaceState(null, "", window.location.pathname);
 
     fetch("/api/subscription/confirm", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ preapprovalId: checkoutReturn.preapprovalId }),
+      body: JSON.stringify({ preapprovalId: checkoutReturn?.preapprovalId ?? undefined }),
     })
       .then((res) => (res.ok ? res.json() : null))
       .then(async (data: { outcome?: string } | null) => {
-        // Refresh first so the "ok" banner names the new plan, not the old one.
-        await refreshUsage();
-        setCheckout(data?.outcome === "activated" ? "ok" : "pending");
+        if (data?.outcome === "activated") {
+          // Refresh first so the "ok" banner names the new plan, not the old one.
+          await refreshUsage();
+          setCheckout("ok");
+        } else if (checkoutReturn) {
+          setCheckout("pending");
+        }
+        // A pending checkout that isn't paid yet (or was abandoned) stays silent.
       })
-      .catch(() => setCheckout("pending"));
-  }, [checkoutReturn, refreshUsage]);
+      .catch(() => {
+        if (checkoutReturn) setCheckout("pending");
+      });
+  }, [checkoutReturn, hasPendingCheckout, refreshUsage]);
 
   // Every answered prompt burns a run, so re-read the quota once the stream ends.
   const { messages, sendMessage, status, error } = useChat({
