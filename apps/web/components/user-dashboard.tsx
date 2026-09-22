@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { AgentChatPanel } from "@/components/agent-chat-panel";
@@ -27,12 +28,15 @@ export function UserDashboard({
   events,
   eventsError,
   betProfile,
+  checkoutReturn,
 }: {
   firstName: string | null;
   initialUsage: DashboardUsage | null;
   events: FeaturedEvent[];
   eventsError: string | null;
   betProfile?: string;
+  /** Set when MP's checkout redirected back here (`?suscripcion=ok`). */
+  checkoutReturn?: { preapprovalId: string | null } | null;
 }) {
   const [usage, setUsage] = useState<DashboardUsage | null>(initialUsage);
 
@@ -44,6 +48,30 @@ export function UserDashboard({
       // ignore — usage is a nicety, enforcement also happens server-side
     }
   }, []);
+
+  // Back from MP checkout (`/?suscripcion=ok&preapproval_id=...`): confirm the
+  // subscription right away rather than waiting for the webhook.
+  const [checkout, setCheckout] = useState<"confirming" | "ok" | "pending" | null>(
+    checkoutReturn ? (checkoutReturn.preapprovalId ? "confirming" : "pending") : null,
+  );
+  useEffect(() => {
+    if (!checkoutReturn) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    if (!checkoutReturn.preapprovalId) return;
+
+    fetch("/api/subscription/confirm", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ preapprovalId: checkoutReturn.preapprovalId }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then(async (data: { outcome?: string } | null) => {
+        // Refresh first so the "ok" banner names the new plan, not the old one.
+        await refreshUsage();
+        setCheckout(data?.outcome === "activated" ? "ok" : "pending");
+      })
+      .catch(() => setCheckout("pending"));
+  }, [checkoutReturn, refreshUsage]);
 
   // Every answered prompt burns a run, so re-read the quota once the stream ends.
   const { messages, sendMessage, status, error } = useChat({
@@ -105,10 +133,30 @@ export function UserDashboard({
                 ? "Admin · combinadas ilimitadas"
                 : `${usage.remaining} de ${usage.limit} combinadas este mes`}
             </span>
-            {!usage.admin && <span className="chip">Plan {planName}</span>}
+            {!usage.admin && (
+              <Link href="/settings/suscripcion" className="chip hover:text-[var(--color-ink)]">
+                Plan {planName}
+              </Link>
+            )}
           </div>
         )}
       </div>
+
+      {checkout && (
+        <div
+          className="mt-6 rounded-xl px-4 py-3 text-sm"
+          style={
+            checkout === "ok"
+              ? { background: "rgba(184,255,53,0.1)", color: "var(--color-edge)" }
+              : { background: "rgba(255,255,255,0.04)", color: "var(--color-ink-muted)" }
+          }
+        >
+          {checkout === "confirming" && "Estamos confirmando tu suscripción…"}
+          {checkout === "ok" && `¡Listo! Ya estás en el plan ${planName ?? ""}. A romperla.`}
+          {checkout === "pending" &&
+            "Mercado Pago está procesando tu pago. Tu plan se actualiza solo apenas se confirme (suele tardar unos minutos)."}
+        </div>
+      )}
 
       {/* Two rows so the chat panel's top edge lines up with the tab row,
           instead of the prototype's hidden header spacer. */}

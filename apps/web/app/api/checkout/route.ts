@@ -1,6 +1,6 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { createPreapproval, mpEnabled } from "@/lib/mercadopago";
-import { ensureUser } from "@/lib/usage";
+import { ensureUser, getSubscription } from "@/lib/usage";
 import type { PlanId } from "@/lib/plans";
 
 export async function POST(req: Request) {
@@ -19,6 +19,13 @@ export async function POST(req: Request) {
   const user = await currentUser();
   const email = user?.emailAddresses?.[0]?.emailAddress;
   await ensureUser(userId, email);
+
+  // Switching plans is fine (the old subscription is cancelled once the new
+  // one is authorized); re-buying the plan you're already paying for isn't.
+  const sub = await getSubscription(userId);
+  if (sub.planId === planId && sub.status === "active") {
+    return Response.json({ error: "already_on_plan" }, { status: 409 });
+  }
 
   const origin = new URL(req.url).origin;
   try {

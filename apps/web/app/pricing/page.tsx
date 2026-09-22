@@ -1,13 +1,29 @@
 import { Reveal } from "@/components/reveal";
 import { PlanCta } from "@/components/plan-cta";
-import { PLANS, formatArs, pricePerRun } from "@/lib/plans";
+import { auth } from "@clerk/nextjs/server";
+import { PLANS, formatArs, pricePerRun, type PlanId } from "@/lib/plans";
+import { getSubscription } from "@/lib/usage";
 
 export const metadata = {
   title: "Precios — BETIA",
   description: "Planes de BETIA por combinadas mensuales. Free para probar, Starter y Pro para ir en serio.",
 };
 
-export default function PricingPage() {
+/** The signed-in user's active plan, or null (signed out, no Clerk, DB down). */
+async function currentPlanId(): Promise<PlanId | null> {
+  try {
+    const { userId } = await auth();
+    if (!userId) return null;
+    const sub = await getSubscription(userId);
+    // A cancelled plan can be re-bought, so it doesn't count as "current" here.
+    return sub.status === "active" ? sub.planId : null;
+  } catch {
+    return null;
+  }
+}
+
+export default async function PricingPage() {
+  const current = await currentPlanId();
   return (
     <div className="container-page py-16">
       <Reveal>
@@ -135,7 +151,12 @@ export default function PricingPage() {
                   </p>
                 )}
 
-                <PlanCta planId={plan.id} label={plan.cta} primary={Boolean(highlight)} />
+                <PlanCta
+                  planId={plan.id}
+                  label={plan.cta}
+                  primary={Boolean(highlight)}
+                  current={current === plan.id}
+                />
               </div>
             </Reveal>
           );

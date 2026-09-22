@@ -7,14 +7,25 @@ export function PlanCta({
   planId,
   label,
   primary,
+  current = false,
 }: {
   planId: PlanId;
   label: string;
   primary: boolean;
+  /** The signed-in user already has this plan active. */
+  current?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const cls = `btn mt-6 w-full ${primary ? "btn-primary" : "btn-ghost"}`;
+
+  if (current) {
+    return (
+      <button disabled className={`${cls} opacity-50`}>
+        Tu plan actual
+      </button>
+    );
+  }
 
   if (planId === "free") {
     return (
@@ -37,6 +48,11 @@ export function PlanCta({
         window.location.href = `/sign-up?plan=${planId}`;
         return;
       }
+      if (res.status === 409) {
+        setMsg("Ya tenés este plan.");
+        setLoading(false);
+        return;
+      }
       if (res.status === 503) {
         setMsg("Los pagos todavía no están habilitados. Volvé pronto.");
         setLoading(false);
@@ -56,11 +72,16 @@ export function PlanCta({
   };
 
   return (
-    <>
+    <div className="relative">
       <button onClick={go} disabled={loading} className={`${cls} disabled:opacity-50`}>
         {loading ? "Redirigiendo…" : label}
       </button>
-      {msg && <p className="mt-2 text-center text-xs text-[var(--color-danger)]">{msg}</p>}
-    </>
+      {/* Absolute so the message doesn't push this card's button above the others. */}
+      {msg && (
+        <p className="absolute inset-x-0 top-full mt-2 text-center text-xs text-[var(--color-danger)]">
+          {msg}
+        </p>
+      )}
+    </div>
   );
 }

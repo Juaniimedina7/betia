@@ -11,7 +11,11 @@ export const dynamic = "force-dynamic";
 
 const clerkEnabled = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   if (!clerkEnabled) return <PublicLanding />;
 
   const user = await currentUser();
@@ -36,6 +40,12 @@ export default async function HomePage() {
     getUserBetProfile(user.id).catch(() => undefined),
   ]);
 
+  const params = await searchParams;
+  const checkoutReturn =
+    params.suscripcion === "ok"
+      ? { preapprovalId: typeof params.preapproval_id === "string" ? params.preapproval_id : null }
+      : null;
+
   return (
     <UserDashboard
       firstName={user.firstName}
@@ -43,6 +53,7 @@ export default async function HomePage() {
       events={events}
       eventsError={error}
       betProfile={betProfile}
+      checkoutReturn={checkoutReturn}
     />
   );
 }

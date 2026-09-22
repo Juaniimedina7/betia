@@ -10,6 +10,42 @@ export function currentPeriod(now: Date = new Date()): string {
 /** Re-exported for existing callers (e.g. the checkout route) — see @bet/db's ensureUserExists. */
 export const ensureUser = ensureUserExists;
 
+export interface Subscription {
+  /** Plan the user is billed/entitled for right now, after applying expiry. */
+  planId: PlanId;
+  status: "active" | "paused" | "cancelled";
+  /** Set only for a cancelled plan still inside its paid month. */
+  expiresAt: Date | null;
+  mpPreapprovalId: string | null;
+}
+
+/**
+ * A cancelled paid plan keeps applying until `planExpiresAt` (end of the
+ * month already charged), then falls back to Free.
+ */
+export async function getSubscription(userId: string, now: Date = new Date()): Promise<Subscription> {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      plan: users.plan,
+      planStatus: users.planStatus,
+      planExpiresAt: users.planExpiresAt,
+      mpPreapprovalId: users.mpPreapprovalId,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!row) return { planId: "free", status: "active", expiresAt: null, mpPreapprovalId: null };
+
+  const expired = row.planStatus === "cancelled" && (!row.planExpiresAt || row.planExpiresAt <= now);
+  return {
+    planId: expired ? "free" : (row.plan as PlanId),
+    status: row.planStatus,
+    expiresAt: expired ? null : row.planExpiresAt,
+    mpPreapprovalId: row.mpPreapprovalId,
+  };
+}
+
 export interface UsageSnapshot {
   planId: PlanId;
   used: number;
@@ -22,12 +58,7 @@ export async function getUsage(userId: string): Promise<UsageSnapshot> {
   const db = getDb();
   const period = currentPeriod();
 
-  const [userRow] = await db
-    .select({ plan: users.plan })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
-  const planId = (userRow?.plan as PlanId) ?? "free";
+  const { planId } = await getSubscription(userId);
   const limit = PLAN_BY_ID[planId].runs;
 
   const [usageRow] = await db

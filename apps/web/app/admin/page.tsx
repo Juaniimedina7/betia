@@ -16,7 +16,7 @@ async function setPlan(formData: FormData) {
   if (!userId || !planIds.includes(plan)) return;
   await getDb()
     .update(users)
-    .set({ plan, planStatus: "active", planUpdatedAt: new Date() })
+    .set({ plan, planStatus: "active", planExpiresAt: null, planUpdatedAt: new Date() })
     .where(eq(users.id, userId));
   revalidatePath("/admin");
 }

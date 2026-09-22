@@ -1,39 +1,22 @@
-import { getDb, planIds, users } from "@bet/db";
-import { eq } from "drizzle-orm";
-import { getPreapproval } from "@/lib/mercadopago";
+import { syncPreapproval, verifyWebhookSignature } from "@/lib/mercadopago";
 
-/** MP pings this on subscription events. We re-fetch the preapproval from MP
- *  (using our own token) as verification, then sync the user's plan. */
-async function handle(id: string | null, topic: string | null) {
-  if (!id) return;
-  if (topic && !topic.includes("preapproval") && !topic.includes("subscription")) return;
-
-  const pre = await getPreapproval(id);
-  if (!pre?.external_reference) return;
-
-  const [refUserId, planId] = pre.external_reference.split(":");
-  if (!refUserId || !planIds.includes(planId as (typeof planIds)[number])) return;
-
-  const db = getDb();
-  if (pre.status === "authorized") {
-    await db
-      .update(users)
-      .set({ plan: planId as (typeof planIds)[number], planStatus: "active", mpPreapprovalId: id, planUpdatedAt: new Date() })
-      .where(eq(users.id, refUserId));
-  } else if (pre.status === "cancelled") {
-    await db
-      .update(users)
-      .set({ plan: "free", planStatus: "cancelled", planUpdatedAt: new Date() })
-      .where(eq(users.id, refUserId));
-  } else if (pre.status === "paused") {
-    await db.update(users).set({ planStatus: "paused", planUpdatedAt: new Date() }).where(eq(users.id, refUserId));
-  }
-}
-
+/** MP pings this on subscription events. We check MP's signature, then
+ *  re-fetch the preapproval from MP (our own token) and sync the user's plan. */
 export async function POST(req: Request) {
   const url = new URL(req.url);
-  let id = url.searchParams.get("data.id") ?? url.searchParams.get("id");
+  // MP signs the id from the query string, so read it before the body.
+  const signedId = url.searchParams.get("data.id") ?? url.searchParams.get("id");
+  let id = signedId;
   let topic = url.searchParams.get("type") ?? url.searchParams.get("topic");
+
+  const signature = verifyWebhookSignature(req, signedId);
+  if (signature === false) {
+    return new Response("invalid signature", { status: 401 });
+  }
+  if (signature === null) {
+    // Still safe (syncPreapproval never trusts the payload), just unverified.
+    console.warn("[mp-webhook] MP_WEBHOOK_SECRET not set — skipping signature check");
+  }
 
   try {
     const body = (await req.json()) as { data?: { id?: string }; type?: string; action?: string };
@@ -43,10 +26,14 @@ export async function POST(req: Request) {
     // MP sometimes sends empty/non-JSON bodies; query params cover those.
   }
 
-  try {
-    await handle(id, topic);
-  } catch {
-    // Never fail the webhook — MP retries on non-2xx.
+  // Payment events (subscription_authorized_payment, payment) aren't handled yet.
+  if (id && (!topic || topic.includes("preapproval"))) {
+    try {
+      await syncPreapproval(id);
+    } catch (e) {
+      // Never fail the webhook — MP retries on non-2xx.
+      console.error("[mp-webhook] sync failed", e);
+    }
   }
   return new Response("ok", { status: 200 });
 }

@@ -25,6 +25,12 @@ export const users = pgTable("users", {
     .notNull()
     .default("active"),
   mpPreapprovalId: text("mp_preapproval_id"),
+  /**
+   * Only meaningful with planStatus="cancelled": the paid `plan` keeps applying
+   * until this instant (end of the month already charged), then the user is
+   * effectively on Free — see `effectivePlan` in apps/web/lib/usage.ts.
+   */
+  planExpiresAt: timestamp("plan_expires_at", { withTimezone: true }),
   planUpdatedAt: timestamp("plan_updated_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

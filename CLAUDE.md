@@ -785,6 +785,31 @@ the two used to look identical. This only covers `sports` (the group-name path);
 no fuzzy resolution — passing a wrong one there still silently returns nothing, since a
 sport_key isn't a name a user would ever type by hand the way a sport group is.
 
+## Mercado Pago subscriptions (2026-09-22)
+
+Paid plans (`apps/web/lib/plans.ts`) are billed as MP **preapprovals without an
+associated plan** (`POST /preapproval`, amount taken from `plans.ts`, ARS, monthly).
+All sync logic lives in `syncPreapproval` (`apps/web/lib/mercadopago.ts`), shared by
+the webhook (`/api/webhooks/mercadopago`) and `/api/subscription/confirm` (called by
+the dashboard when MP redirects back to `/?suscripcion=ok&preapproval_id=...`).
+
+- **One live subscription per user** (`users.mp_preapproval_id`). A newly authorized
+  one replaces it and the old one is cancelled at MP *only then*. Events for any other
+  preapproval id are ignored — otherwise the replaced subscription's "cancelled" event
+  would downgrade the user. **No proration** on plan changes (product decision).
+- **Cancel keeps access until the paid month ends**: `/settings/suscripcion` cancels at
+  MP and sets `plan_status='cancelled'` + `plan_expires_at` (from `next_payment_date`,
+  read *before* cancelling). `getSubscription` in `lib/usage.ts` treats an expired
+  cancelled plan as Free — read the plan through it, never `users.plan` directly.
+- `plan_expires_at` was added by hand-written SQL (`ALTER TABLE users ADD COLUMN
+  plan_expires_at timestamptz;`), same no-`db:push` rule as above.
+- Webhook verifies `x-signature` with `MP_WEBHOOK_SECRET` when set (401 on mismatch);
+  without it, it logs a warning and still works, since it never trusts the payload.
+- **Not handled yet**: payment events (`subscription_authorized_payment`) — a failed
+  monthly charge keeps the plan until MP itself pauses/cancels the preapproval.
+- MP's terms restrict gambling merchants; BETIA sells informational analysis, but make
+  sure the seller account declares that activity accurately.
+
 ## Highlightly quota (2026-08-31)
 
 Second external data source, added for statistical (Poisson-model) win/draw/loss
