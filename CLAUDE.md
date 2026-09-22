@@ -818,6 +818,14 @@ the dashboard when MP redirects back to `/?suscripcion=ok&preapproval_id=...`).
   2026-09-22). **Remove it from Vercel + GitHub when switching to real credentials.**
   A stale `MP_TEST_PAYER_EMAIL` (wrong value, unused by code) is still in Vercel —
   sync-env can't overwrite it, which is why the var was renamed; delete it too.
+- **Sandbox webhooks are signed by a different MP application** than the one in the
+  main account's panel (confirmed live 2026-09-22 by re-computing HMACs of logged real
+  notifications): the test seller's token belongs to app `1692191571686869` (inside
+  the test seller account, own webhook secret), while panel simulations come from the
+  main account's app `1188944273720491` and pass with `MP_WEBHOOK_SECRET`. So real
+  sandbox notifications need `MP_SANDBOX_WEBHOOK_SECRET` (both are accepted). The
+  access token's format `APP_USR-<app id>-...-<user id>` tells you which app signs.
+  Remove it together with the other sandbox vars.
 - **Not handled yet**: payment events (`subscription_authorized_payment`) — a failed
   monthly charge keeps the plan until MP itself pauses/cancels the preapproval.
 - MP's terms restrict gambling merchants; BETIA sells informational analysis, but make

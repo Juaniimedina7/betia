@@ -250,12 +250,19 @@ export async function syncPendingCheckout(userId: string): Promise<SyncOutcome |
 /**
  * Validates MP's `x-signature` header (HMAC-SHA256 over
  * `id:<data.id>;request-id:<x-request-id>;ts:<ts>;` keyed by the webhook
- * secret from the MP panel). Returns null when MP_WEBHOOK_SECRET isn't set,
- * so callers can decide how strict to be.
+ * secret from the MP panel). Returns null when no secret is set, so callers
+ * can decide how strict to be.
+ *
+ * Each MP application signs with its own secret, and in sandbox the app that
+ * owns the test seller's token is not the one in the main account's panel —
+ * so MP_SANDBOX_WEBHOOK_SECRET (that app's secret) is accepted too. Remove it
+ * together with the test credentials.
  */
 export function verifyWebhookSignature(req: Request, dataId: string | null): boolean | null {
-  const secret = process.env.MP_WEBHOOK_SECRET;
-  if (!secret) return null;
+  const secrets = [process.env.MP_WEBHOOK_SECRET, process.env.MP_SANDBOX_WEBHOOK_SECRET].filter(
+    (x): x is string => Boolean(x),
+  );
+  if (secrets.length === 0) return null;
 
   const header = req.headers.get("x-signature");
   if (!header) return false;
@@ -278,8 +285,9 @@ export function verifyWebhookSignature(req: Request, dataId: string | null): boo
   if (requestId) manifest += `request-id:${requestId};`;
   manifest += `ts:${ts};`;
 
-  const expected = createHmac("sha256", secret).update(manifest).digest("hex");
-  const a = Buffer.from(expected, "hex");
   const b = Buffer.from(v1, "hex");
-  return a.length === b.length && timingSafeEqual(a, b);
+  return secrets.some((secret) => {
+    const a = Buffer.from(createHmac("sha256", secret).update(manifest).digest("hex"), "hex");
+    return a.length === b.length && timingSafeEqual(a, b);
+  });
 }
