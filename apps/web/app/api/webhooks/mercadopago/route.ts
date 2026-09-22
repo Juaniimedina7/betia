@@ -20,8 +20,12 @@ export async function POST(req: Request) {
   let topic = url.searchParams.get("type") ?? url.searchParams.get("topic");
 
   const signature = verifyWebhookSignature(req, signedId);
+  const headers = {
+    signatureHeader: req.headers.get("x-signature"),
+    requestId: req.headers.get("x-request-id"),
+  };
   if (signature === false) {
-    await record({ query: url.search, topic, dataId: signedId, signatureOk: false, outcome: "rejected" });
+    await record({ query: url.search, topic, dataId: signedId, signatureOk: false, outcome: "rejected", ...headers });
     return new Response("invalid signature", { status: 401 });
   }
   if (signature === null) {
@@ -51,7 +55,7 @@ export async function POST(req: Request) {
     }
   }
 
-  await record({ query: url.search, topic, dataId: id, signatureOk: signature, outcome, error });
+  await record({ query: url.search, topic, dataId: id, signatureOk: signature, outcome, error, ...headers });
   return new Response("ok", { status: 200 });
 }
 

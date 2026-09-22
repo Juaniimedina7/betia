@@ -323,6 +323,9 @@ export const mpWebhookEvents = pgTable("mp_webhook_events", {
   dataId: text("data_id"),
   /** null = MP_WEBHOOK_SECRET not set, so not checked. */
   signatureOk: boolean("signature_ok"),
+  /** Raw x-signature / x-request-id, so a rejected signature can be re-checked offline. */
+  signatureHeader: text("signature_header"),
+  requestId: text("request_id"),
   outcome: text("outcome"),
   error: text("error"),
 });
