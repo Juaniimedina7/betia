@@ -12,7 +12,8 @@ export default async function OddsPage() {
   try {
     ({ sports } = await listSports({}));
   } catch (e) {
-    error = e instanceof Error ? e.message : "No se pudo cargar la lista de deportes";
+    console.error("[app/odds/page.tsx]", e);
+    error = "No se pudo cargar la lista de deportes";
   }
 
   return (

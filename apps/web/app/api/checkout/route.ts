@@ -32,9 +32,8 @@ export async function POST(req: Request) {
     const { url } = await createPreapproval({ planId, userId, email, baseUrl: origin });
     return Response.json({ url });
   } catch (e) {
-    return Response.json(
-      { error: "checkout_failed", message: e instanceof Error ? e.message : "unknown" },
-      { status: 500 },
-    );
+    // MP's raw error (status + body) stays in the server log, never in the UI.
+    console.error("[checkout] createPreapproval failed", e);
+    return Response.json({ error: "checkout_failed" }, { status: 500 });
   }
 }

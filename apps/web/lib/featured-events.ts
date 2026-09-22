@@ -159,10 +159,8 @@ export async function getFeaturedEvents(): Promise<FeaturedEventsResult> {
     await decorateStatisticalProbability(top, teamsByFixture);
     return { events: top, error: null };
   } catch (e) {
-    return {
-      events: [],
-      error: e instanceof Error ? e.message : "No se pudieron cargar los partidos",
-    };
+    console.error("[featured-events]", e);
+    return { events: [], error: "No se pudieron cargar los partidos" };
   }
 }
 

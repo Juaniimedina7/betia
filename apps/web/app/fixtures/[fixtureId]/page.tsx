@@ -21,7 +21,8 @@ export default async function FixturePage({ params }: PageProps<"/fixtures/[fixt
   try {
     ({ bookmakerOdds, source, matchup } = await getOdds({ fixtureId }));
   } catch (e) {
-    error = e instanceof Error ? e.message : "No se pudieron cargar las cuotas";
+    console.error("[app/fixtures/[fixtureId]/page.tsx]", e);
+    error = "No se pudieron cargar las cuotas";
   }
 
   const matchupLabel =

@@ -25,7 +25,8 @@ export default async function SportOddsPage({
     const { tournaments } = await listTournaments({ sportId });
     ranked = rankTournaments(tournaments, region);
   } catch (e) {
-    tournamentsError = e instanceof Error ? e.message : "No se pudieron cargar las competiciones";
+    console.error("[app/odds/[sportId]/page.tsx]", e);
+    tournamentsError = "No se pudieron cargar las competiciones";
   }
 
   const selected = comp ? ranked.find((t) => t.tournamentId === comp) : undefined;
@@ -85,7 +86,8 @@ async function FixturesView({
   try {
     ({ fixtures } = await listFixtures({ sportId, tournamentId: comp }));
   } catch (e) {
-    error = e instanceof Error ? e.message : "No se pudieron cargar los partidos";
+    console.error("[app/odds/[sportId]/page.tsx]", e);
+    error = "No se pudieron cargar los partidos";
   }
 
   // Keep only this competition's fixtures — the live API filters by tournamentId,

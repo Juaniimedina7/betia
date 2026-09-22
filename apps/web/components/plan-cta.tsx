@@ -58,12 +58,12 @@ export function PlanCta({
         setLoading(false);
         return;
       }
-      const data = (await res.json().catch(() => ({}))) as { url?: string; message?: string };
+      const data = (await res.json().catch(() => ({}))) as { url?: string };
       if (data.url) {
         window.location.href = data.url;
         return;
       }
-      setMsg(data.message ?? "No pudimos iniciar el pago. Probá de nuevo.");
+      setMsg("No pudimos iniciar el pago. Probá de nuevo.");
       setLoading(false);
     } catch {
       setMsg("No pudimos iniciar el pago. Probá de nuevo.");
