@@ -69,6 +69,7 @@ export interface Preapproval {
   status: "authorized" | "pending" | "paused" | "cancelled";
   external_reference?: string;
   date_created?: string;
+  init_point?: string;
   next_payment_date?: string;
   summarized?: { last_charged_date?: string | null };
 }
@@ -245,6 +246,37 @@ export async function syncPendingCheckout(userId: string): Promise<SyncOutcome |
     .set({ mpPendingPreapprovalId: null })
     .where(and(eq(users.id, userId), eq(users.mpPendingPreapprovalId, id)));
   return outcome;
+}
+
+/**
+ * Guards against charging twice for one plan (double click, retry, a second
+ * tab): before starting a new checkout, look at the user's last one.
+ * - still open, same plan → reuse its URL instead of creating another;
+ * - already paid but not synced yet (webhook in flight) → sync now, "paid";
+ * - anything else (other plan, abandoned, cancelled) → null, start a new one.
+ */
+export async function reusablePendingCheckout(
+  userId: string,
+  planId: PlanId,
+): Promise<{ url: string } | "paid" | null> {
+  const [row] = await getDb()
+    .select({ pending: users.mpPendingPreapprovalId })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!row?.pending) return null;
+
+  const pre = await getPreapproval(row.pending);
+  const ref = parseReference(pre?.external_reference);
+  if (!pre || ref?.userId !== userId || ref.planId !== planId) return null;
+
+  if (pre.status === "authorized") {
+    await syncPreapproval(pre.id);
+    return "paid";
+  }
+  const open = Date.now() - Date.parse(pre.date_created ?? "") < PENDING_CHECKOUT_TTL_MS;
+  if (pre.status === "pending" && open && pre.init_point) return { url: pre.init_point };
+  return null;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { getDb, users } from "@bet/db";
 import { eq } from "drizzle-orm";
-import { createPreapproval, mpEnabled } from "@/lib/mercadopago";
+import { createPreapproval, mpEnabled, reusablePendingCheckout } from "@/lib/mercadopago";
 import { ensureUser, getSubscription } from "@/lib/usage";
 import type { PlanId } from "@/lib/plans";
 
@@ -31,6 +31,12 @@ export async function POST(req: Request) {
 
   const origin = new URL(req.url).origin;
   try {
+    const reusable = await reusablePendingCheckout(userId, planId);
+    if (reusable === "paid") {
+      return Response.json({ error: "already_on_plan" }, { status: 409 });
+    }
+    if (reusable) return Response.json({ url: reusable.url });
+
     const { url, id } = await createPreapproval({ planId, userId, email, baseUrl: origin });
     // Lets the dashboard confirm it on the next visit, however the user comes back.
     await getDb().update(users).set({ mpPendingPreapprovalId: id }).where(eq(users.id, userId));
