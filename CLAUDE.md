@@ -962,7 +962,12 @@ Worth adding real alerting (e.g. a Slack/email ping on workflow failure) at some
    "Sync missing env vars to Vercel" step runs `.github/scripts/sync-env.mjs` on every
    deploy, which pushes any GitHub repo secret not yet present in Vercel (all three
    environments) using the `VERCEL_TOKEN` secret the workflow already has — it only
-   adds missing keys, never overwrites existing ones. Confirmed working live
+   adds missing keys, never overwrites existing ones. **To rotate or delete a key that
+   Vercel already has** (added 2026-09-22), run "Deploy to Vercel" manually
+   (`gh workflow run deploy.yml -f overwrite=KEY1,KEY2 -f remove=KEY3`): `overwrite`
+   replaces the Vercel value with the current GitHub secret, `remove` deletes it from
+   Vercel (delete the GitHub secret too, or the next push re-adds it). Pushes never
+   overwrite or delete. Confirmed working live
    2026-09-07: adding `API_FOOTBALL_API_KEY` as a GitHub secret and triggering
    `deploy.yml` via `workflow_dispatch` synced it into Vercel production/preview/
    development without needing direct Vercel access at all.

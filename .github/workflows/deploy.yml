@@ -6,6 +6,15 @@ on:
   push:
     branches: [main]
   workflow_dispatch: # permite dispararlo a mano desde la pestania Actions
+    inputs:
+      overwrite:
+        description: "Claves a PISAR en Vercel con el valor actual del GitHub secret (separadas por coma)"
+        required: false
+        default: ""
+      remove:
+        description: "Claves a BORRAR de Vercel (separadas por coma). Borra tambien el GitHub secret o el proximo push la vuelve a agregar"
+        required: false
+        default: ""
 
 # El org y el project no son secretos: son los IDs del proyecto betia-web.
 env:
@@ -39,6 +48,9 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           SECRETS_JSON: ${{ toJSON(secrets) }}
+          # Solo tienen valor en corridas manuales; en un push quedan vacias.
+          SYNC_OVERWRITE: ${{ inputs.overwrite }}
+          SYNC_REMOVE: ${{ inputs.remove }}
         run: node .github/scripts/sync-env.mjs
 
       - name: Pull Vercel environment

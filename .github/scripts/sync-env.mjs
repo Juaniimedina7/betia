@@ -1,9 +1,17 @@
 // Syncs GitHub repo secrets to the Vercel project: any secret that is not
 // already present in Vercel (per environment) gets added. Existing values are
-// never overwritten. Values are never printed — only key names.
+// never overwritten by default. Values are never printed — only key names.
+//
+// Manual runs (workflow_dispatch) can opt in to two extra steps, run first:
+// - SYNC_REMOVE: comma-separated keys deleted from Vercel (all environments).
+//   They're also skipped by the add-missing pass of that run — delete the
+//   GitHub secret too, or the next push re-adds them.
+// - SYNC_OVERWRITE: comma-separated keys replaced in Vercel with the current
+//   GitHub secret value (e.g. rotating credentials).
 //
 // Inputs (env): VERCEL_TOKEN, SECRETS_JSON (from `toJSON(secrets)`),
-// VERCEL_ORG_ID + VERCEL_PROJECT_ID (so the CLI resolves the project unlinked).
+// VERCEL_ORG_ID + VERCEL_PROJECT_ID (so the CLI resolves the project unlinked),
+// optional SYNC_REMOVE / SYNC_OVERWRITE.
 
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
@@ -31,11 +39,75 @@ const isDenied = (key) => DENY.has(key.toLowerCase()) || key.toUpperCase().start
 const ENVIRONMENTS = ["production", "preview", "development"];
 
 const secrets = JSON.parse(process.env.SECRETS_JSON || "{}");
-const candidates = Object.keys(secrets).filter((k) => !isDenied(k));
+
+const parseList = (v) =>
+  (v || "")
+    .split(",")
+    .map((k) => k.trim())
+    .filter(Boolean);
+const toRemove = parseList(process.env.SYNC_REMOVE);
+const toOverwrite = parseList(process.env.SYNC_OVERWRITE);
+
+for (const key of [...toRemove, ...toOverwrite]) {
+  if (isDenied(key)) {
+    console.error(`${key} está en la lista de claves que nunca se tocan en Vercel.`);
+    process.exit(1);
+  }
+}
+const missing = toOverwrite.filter((k) => !(k in secrets));
+if (missing.length > 0) {
+  // Overwriting with nothing would silently wipe a working value.
+  console.error(`No hay GitHub secret para pisar: ${missing.join(", ")}`);
+  process.exit(1);
+}
+
+const vercel = (args, input) =>
+  execFileSync("vercel", [...args, "--token", token], {
+    input,
+    stdio: [input === undefined ? "ignore" : "pipe", "ignore", "inherit"],
+  });
+
+/** Deletes a key from one environment; false if it wasn't there. */
+function removeKey(key, environment) {
+  try {
+    vercel(["env", "rm", key, environment, "--yes"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const removed = [];
+for (const key of toRemove) {
+  for (const environment of ENVIRONMENTS) {
+    if (removeKey(key, environment)) removed.push(`${key} (${environment})`);
+  }
+}
+if (toRemove.length > 0) {
+  console.log(removed.length ? `Borradas de Vercel: ${removed.join(", ")}` : "Nada para borrar.");
+}
+
+const overwritten = [];
+for (const key of toOverwrite) {
+  for (const environment of ENVIRONMENTS) {
+    removeKey(key, environment);
+    try {
+      vercel(["env", "add", key, environment], String(secrets[key]));
+      overwritten.push(`${key} (${environment})`);
+    } catch {
+      console.error(`· ${key} (${environment}): no se pudo pisar`);
+      process.exitCode = 1;
+    }
+  }
+}
+if (toOverwrite.length > 0) console.log(`Pisadas en Vercel: ${overwritten.join(", ")}`);
+
+const skip = new Set([...toRemove, ...toOverwrite]);
+const candidates = Object.keys(secrets).filter((k) => !isDenied(k) && !skip.has(k));
 
 if (candidates.length === 0) {
   console.log("No hay secrets candidatos para sincronizar.");
-  process.exit(0);
+  process.exit(process.exitCode ?? 0);
 }
 
 const tmp = mkdtempSync(join(tmpdir(), "betia-env-"));
