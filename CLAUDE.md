@@ -805,6 +805,12 @@ the dashboard when MP redirects back to `/?suscripcion=ok&preapproval_id=...`).
   plan_expires_at timestamptz;`), same no-`db:push` rule as above.
 - Webhook verifies `x-signature` with `MP_WEBHOOK_SECRET` when set (401 on mismatch);
   without it, it logs a warning and still works, since it never trusts the payload.
+- **Sandbox**: `MP_SANDBOX_PAYER_EMAIL` overrides `payer_email` (MP rejects a real payer
+  with a test seller). The valid test-buyer email is `test_user_<number from the
+  TESTUSER nickname>@testuser.com` — *not* the numeric User ID (confirmed live
+  2026-09-22). **Remove it from Vercel + GitHub when switching to real credentials.**
+  A stale `MP_TEST_PAYER_EMAIL` (wrong value, unused by code) is still in Vercel —
+  sync-env can't overwrite it, which is why the var was renamed; delete it too.
 - **Not handled yet**: payment events (`subscription_authorized_payment`) — a failed
   monthly charge keeps the plan until MP itself pauses/cancels the preapproval.
 - MP's terms restrict gambling merchants; BETIA sells informational analysis, but make

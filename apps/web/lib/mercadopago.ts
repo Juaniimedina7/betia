@@ -40,7 +40,7 @@ export async function createPreapproval(opts: {
       // MP rejects mixing a test seller with a real payer ("Both payer and
       // collector must be real or test users"), so sandbox runs force the
       // test buyer's email. Must be unset with production credentials.
-      payer_email: process.env.MP_TEST_PAYER_EMAIL || opts.email,
+      payer_email: process.env.MP_SANDBOX_PAYER_EMAIL || opts.email,
       // MP appends ?preapproval_id=... — the dashboard uses it to confirm
       // right away instead of waiting on the webhook.
       back_url: `${opts.baseUrl}/?suscripcion=ok`,
